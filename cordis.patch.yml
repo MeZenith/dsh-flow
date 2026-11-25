@@ -1,0 +1,6 @@
+# dsh-flow：五大工作流模式 + 分层提示词。
+# 只有一行 Host 插件；Client 半由 package.json 的 dsh.client 自动发现，不需要额外 row。
+- insert:
+    - id: flow
+      name: 'dsh-flow'
+      config: {}

@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Flow workflow and prompts",
+    "description": "Five quick modes (Plan / Plan Ultra / Build / Review / Flow), layered prompt injection, and a per-mode default model.",
+    "detail": "docs/DETAIL.md"
+  }
+}

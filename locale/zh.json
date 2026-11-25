@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Flow 工作流与提示词管家",
+    "description": "五大快捷模式（Plan / Plan Ultra / Build / Review / Flow）、分层提示词注入、按模式绑定默认模型。",
+    "detail": "docs/DETAIL.md"
+  }
+}

@@ -1,0 +1,79 @@
+dsh-flow — Source-Available Non-Commercial License, Version 1.0
+===============================================================================
+
+Copyright (c) 2026 MeZenith
+Project: dsh-flow
+Repository: https://github.com/MeZenith/dsh-flow
+
+This license grants you the right to read, use, modify and share this software
+for non-commercial purposes, provided you credit the original project. It is a
+source-available license: it is NOT an OSI-approved open-source license, because
+Section 2 restricts commercial use.
+
+-------------------------------------------------------------------------------
+1. GRANT
+-------------------------------------------------------------------------------
+Subject to Sections 2, 3 and 4, permission is hereby granted, free of charge, to
+any person obtaining a copy of this software and associated documentation files
+(the "Software"), to deal in the Software without restriction, including without
+limitation the rights to use, copy, modify, merge, publish, distribute and
+sublicense the Software and derivative works thereof.
+
+-------------------------------------------------------------------------------
+2. NON-COMMERCIAL ONLY
+-------------------------------------------------------------------------------
+The rights granted in Section 1 are limited to Non-Commercial Purposes.
+
+"Non-Commercial Purposes" means purposes that are not primarily intended for or
+directed toward commercial advantage or monetary compensation. This includes,
+without limitation: personal use, hobby projects, study and teaching, academic
+research, internal evaluation, and use by a non-profit organization that does
+not sell the Software or a derivative work.
+
+Commercial use — including but not limited to selling the Software or a
+derivative work, bundling it into a paid product or paid service, or operating it
+as part of a revenue-generating offering — requires prior written permission from
+the copyright holder.
+
+-------------------------------------------------------------------------------
+3. ATTRIBUTION
+-------------------------------------------------------------------------------
+Any distribution of the Software or of a derivative work, in source or binary
+form, must:
+
+  (a) retain this license file and the copyright notice above;
+
+  (b) clearly credit the original project by name ("dsh-flow") and by its
+      repository URL (https://github.com/MeZenith/dsh-flow), in the
+      documentation, the about screen, or another place a recipient would
+      naturally look; and
+
+  (c) if the work was modified, state that it has been modified and must not
+      represent the derivative as the original, nor claim endorsement by the
+      original author.
+
+-------------------------------------------------------------------------------
+4. THIRD-PARTY COMPONENTS
+-------------------------------------------------------------------------------
+Files under the `vendor/` directory are third-party components distributed under
+the MIT License by their respective authors, and remain governed by the MIT
+License rather than by Sections 2 and 3 of this file. See `THIRD_PARTY_NOTES.md`
+for the exact upstream packages, versions and modifications. This license does
+not restrict any right you receive under those MIT terms for those files.
+
+-------------------------------------------------------------------------------
+5. NO WARRANTY
+-------------------------------------------------------------------------------
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN
+AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+-------------------------------------------------------------------------------
+6. TERMINATION
+-------------------------------------------------------------------------------
+Any breach of Sections 2 or 3 terminates the rights granted by this license. The
+rights are reinstated automatically if the breach is cured within 30 days of
+becoming aware of it.
