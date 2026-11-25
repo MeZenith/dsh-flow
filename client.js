@@ -1459,6 +1459,7 @@ window.__ModuleLoader__.load({
 
       const gateSpec = value && typeof value.spec === 'object' && value.spec !== null ? value.spec : {}
       const gateBehavior = value && typeof value.behavior === 'object' && value.behavior !== null ? value.behavior : {}
+      const promptsCfg = value && typeof value.prompts === 'object' && value.prompts !== null ? value.prompts : {}
 
       /** 复选行：原生 checkbox 已由 `.dsh-flow-checkbox` 对齐主题色，无需自绘。 */
       const checkboxRow = input => h('label', { className: 'dsh-flow-toggle' },
@@ -1511,6 +1512,31 @@ window.__ModuleLoader__.load({
           }),
           h('span', { className: 'dsh-flow-hint' }, t('gate.autoCompactHint')),
         ),
+        h('div', { className: 'dsh-flow-field' },
+          h('span', { className: 'dsh-flow-fieldlabel' }, t('gate.autonomy')),
+          h(CustomSelect, {
+            value: gateBehavior.flowAutonomy === 'step-by-step' ? 'step-by-step' : 'one-gate',
+            options: [
+              { value: 'one-gate', label: t('gate.autonomyOneGate') },
+              { value: 'step-by-step', label: t('gate.autonomyStep') },
+            ],
+            disabled,
+            ariaLabel: t('gate.autonomy'),
+            onChange: next => { setField(['behavior', 'flowAutonomy'], next) },
+          }),
+          h('span', { className: 'dsh-flow-hint' }, t('gate.autonomyHint')),
+        ),
+        h('div', { className: 'dsh-flow-field' },
+          h('span', { className: 'dsh-flow-fieldlabel' }, t('gate.promptsUrl')),
+          h(TextField, {
+            value: typeof promptsCfg.sourceUrl === 'string' ? promptsCfg.sourceUrl : '',
+            disabled,
+            placeholder: 'https://raw.githubusercontent.com/MeZenith/dsh-flow/main/prompts',
+            onCommit: next => { setField(['prompts', 'sourceUrl'], next.trim()) },
+          }),
+          h('span', { className: 'dsh-flow-hint' }, t('gate.promptsUrlHint')),
+        ),
+        h('div', { className: 'dsh-flow-notice' }, t('gate.promptsDirHint')),
         h('div', { className: 'dsh-flow-notice' }, t('gate.remoteHint')),
       )
 
@@ -1597,6 +1623,12 @@ window.__ModuleLoader__.load({
           t,
         }),
         h('span', { className: 'dsh-flow-hint' }, t('notify.rescueModelHint')),
+        checkboxRow({
+          label: t('notify.debugLog'),
+          checked: circuitCfg.debugLog === true,
+          onChange: next => { setField(['circuit', 'debugLog'], next) },
+        }),
+        h('span', { className: 'dsh-flow-hint' }, t('notify.debugLogHint')),
       )
 
       /* ---- 卡片 2：IM 渠道与 Webhook ---- */
@@ -1847,6 +1879,15 @@ window.__ModuleLoader__.load({
       'notify.rescueModel': '救场强模型',
       'notify.rescueModelHint': '格式 provider::model，例如 deepseek::deepseek-chat；留空则回复 2 时只重投不换模型。',
       'notify.idleHint': '桌面空闲秒数：距你最后一次发消息超过该值才发提醒（0 表示立刻发）。',
+      'notify.debugLog': '记录诊断日志（默认关闭）',
+      'notify.debugLogHint': '开启后把熔断与遥控链路写入 ~/.dsh/logs/dsh-flow-diag.log；也可用环境变量 DSH_FLOW_DEBUG=1 临时开启。',
+      'gate.autonomy': 'Flow 托管档位',
+      'gate.autonomyOneGate': '一次拍板全托管（推荐）',
+      'gate.autonomyStep': '每阶段均确认',
+      'gate.autonomyHint': '一次拍板：批准方案后自动施工、自测、独立验收，内部返工最多 3 轮；每阶段确认：每一步都停下来等你点头。',
+      'gate.promptsUrl': '提示词更新源',
+      'gate.promptsUrlHint': '默认官方仓库 raw 目录，可换成镜像或自建地址；留空即用默认。',
+      'gate.promptsDirHint': '提示词已改为 Markdown 文件化：改 prompts/*.md 立刻生效，无需重启。版本与清单用 /flow prompts list 查看，拉取最新版用 /flow prompts update（不会覆盖 custom 私有目录与你手改的覆盖文本）。',
       'notify.teamEnabled': '联动 dsh-team-control',
       'notify.teamHint': '后台订阅团队事件流，服务未启动时会静默退避重连，不影响主流程。',
       'notify.teamUrl': 'team-control 地址',
@@ -1971,6 +2012,15 @@ window.__ModuleLoader__.load({
       'notify.rescueModel': 'Rescue model',
       'notify.rescueModelHint': 'Format provider::model, e.g. deepseek::deepseek-chat. Empty means reply 2 re-sends without switching.',
       'notify.idleHint': 'Desktop idle seconds: notify only after this long since your last message (0 = immediately).',
+      'notify.debugLog': 'Write diagnostic log (off by default)',
+      'notify.debugLogHint': 'When on, breaker and remote-control traces go to ~/.dsh/logs/dsh-flow-diag.log; DSH_FLOW_DEBUG=1 also enables it.',
+      'gate.autonomy': 'Flow autonomy level',
+      'gate.autonomyOneGate': 'One approval, fully autonomous (recommended)',
+      'gate.autonomyStep': 'Confirm every stage',
+      'gate.autonomyHint': 'One approval: after the plan is approved it builds, self-tests and reviews on its own with up to 3 internal rework rounds. Every stage: it stops for your go-ahead each time.',
+      'gate.promptsUrl': 'Prompt update source',
+      'gate.promptsUrlHint': 'Defaults to the official raw directory; point it at a mirror or your own host. Empty means default.',
+      'gate.promptsDirHint': 'Prompts now live as Markdown files: editing prompts/*.md takes effect immediately without a restart. Use /flow prompts list for the version and inventory, /flow prompts update to pull the latest (never touches custom/ or your overrides).',
       'notify.teamEnabled': 'Link dsh-team-control',
       'notify.teamHint': 'Subscribes to the team event stream in the background; silent backoff when the service is down.',
       'notify.teamUrl': 'team-control base URL',

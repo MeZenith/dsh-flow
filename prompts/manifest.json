@@ -1,0 +1,58 @@
+{
+  "version": "0.4.0",
+  "updatedAt": "2026-11-25T13:02:14.960Z",
+  "files": [
+    {
+      "path": "base.md",
+      "sha256": "26e9e4f265566992741ebce8177d86c56457a45626cb25e42915635c7e227b1d"
+    },
+    {
+      "path": "modes/build.md",
+      "sha256": "b40fcc5033af6e7c44a1cf5df5757316f322f889d917888346a1f59aada5b7a2"
+    },
+    {
+      "path": "modes/flow.md",
+      "sha256": "f78dd1ab931d9dba3becb527ee2caa3ff5cc31476505fd4a9a609e6b55b82c5b"
+    },
+    {
+      "path": "modes/plan-ultra.md",
+      "sha256": "f566ded2fe2d118c0632a34315c806849e42aa4f684b3ecc1800c17715f8a95a"
+    },
+    {
+      "path": "modes/plan.md",
+      "sha256": "b9c24315b560a160d387f277bfdeb35b7588a32ae25ffa226c3b20d0b73b3f7a"
+    },
+    {
+      "path": "modes/review.md",
+      "sha256": "8f4d799c098bd890714f0ce9d02a048f57b28698fd5b517a36aff3f77a3689b5"
+    },
+    {
+      "path": "subagents/README.md",
+      "sha256": "cd81cc41b6dd10fd3ba0733ba22e71b5d4e9c32e9d81b8830258c3fa0c3db0f4"
+    },
+    {
+      "path": "subagents/deep-debugger.md",
+      "sha256": "9b509bdfcaaffe3008d7d17170d671285b129070c7b3f399884d97628b9771f0"
+    },
+    {
+      "path": "subagents/product-scout.md",
+      "sha256": "d4d565cc5e0c09a861d48ba502c22fab801036281b3c9194d2d918602b3217b4"
+    },
+    {
+      "path": "subagents/qa-tester.md",
+      "sha256": "744b48a72342980744ac49bc4ff802c5a14ec088b3b914b886376ba94187e852"
+    },
+    {
+      "path": "subagents/reverse-engineer.md",
+      "sha256": "59162f0086cb338730409e3256c0fa9ad86943077749d14c1492dc189170d3fc"
+    },
+    {
+      "path": "subagents/security-auditor.md",
+      "sha256": "f013f2afde86b6da809bbf08b0bff4cb5212d49b92022ee3ba89ea0110b2d060"
+    },
+    {
+      "path": "subagents/ui-architect.md",
+      "sha256": "87e138b8144be18ae92e79ec98ef4ae6e9e8d0ee9025586500ac55abac2cf534"
+    }
+  ]
+}

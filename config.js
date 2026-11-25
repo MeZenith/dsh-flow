@@ -110,7 +110,8 @@ function modeSchema(id) {
     description: preset.description,
     model: '',
     permission: preset.permission,
-    prompt: DEFAULT_MODE_PROMPTS[id],
+    // S4：默认空串 —— 正文改由 prompts/modes/*.md 提供，这里只做"用户覆盖"槽位。
+    prompt: '',
   }
   return z.object({
     label: z.string().default(defaults.label),
@@ -128,7 +129,8 @@ const MODE_DEFAULTS = Object.freeze(Object.fromEntries(
     description: MODE_PRESETS[id].description,
     model: '',
     permission: MODE_PRESETS[id].permission,
-    prompt: DEFAULT_MODE_PROMPTS[id],
+    // S4：默认空串，让 prompts/modes/<id>.md 成为权威来源。
+    prompt: '',
   }]),
 ))
 
@@ -167,7 +169,9 @@ export const Config = z.object({
     announce: z.boolean().default(true),
     allowWhileRunning: z.boolean().default(true),
     autoCompactOnGate: z.boolean().default(true),
-  }).default({ announce: true, allowWhileRunning: true, autoCompactOnGate: true }).volatile(),
+    /** Flow 托管档位：one-gate（一次拍板全托管，默认）/ step-by-step（每阶段确认）。 */
+    flowAutonomy: z.union(['one-gate', 'step-by-step']).default('one-gate'),
+  }).default({ announce: true, allowWhileRunning: true, autoCompactOnGate: true, flowAutonomy: 'one-gate' }).volatile(),
 
   /* ---------------- S3 增量 ---------------- */
 
@@ -176,7 +180,16 @@ export const Config = z.object({
     threshold: z.number().default(3),
     rescueModel: z.string().default(''),
     idleSeconds: z.number().default(120),
-  }).default({ enabled: true, threshold: 3, rescueModel: '', idleSeconds: 120 }).volatile(),
+    /** 诊断日志开关：默认关闭；关闭时不创建也不写 dsh-flow-diag.log。 */
+    debugLog: z.boolean().default(false),
+  }).default({ enabled: true, threshold: 3, rescueModel: '', idleSeconds: 120, debugLog: false }).volatile(),
+
+  /* ---------------- S4 增量 ---------------- */
+
+  /** 提示词更新源：默认官方仓库 raw 目录，可填镜像或自建地址。 */
+  prompts: z.object({
+    sourceUrl: z.string().default('https://raw.githubusercontent.com/MeZenith/dsh-flow/main/prompts'),
+  }).default({ sourceUrl: 'https://raw.githubusercontent.com/MeZenith/dsh-flow/main/prompts' }).volatile(),
 
   team: z.object({
     enabled: z.boolean().default(true),
@@ -262,7 +275,8 @@ export function plainConfigOf(raw) {
     modes: read(raw?.modes, {}),
     spec: read(raw?.spec, { enabled: true, path: DEFAULT_SPEC_PATH, maxChars: 600 }),
     behavior: read(raw?.behavior, {}),
-    circuit: read(raw?.circuit, { enabled: true, threshold: 3, rescueModel: '', idleSeconds: 120 }),
+    circuit: read(raw?.circuit, { enabled: true, threshold: 3, rescueModel: '', idleSeconds: 120, debugLog: false }),
+    prompts: read(raw?.prompts, { sourceUrl: 'https://raw.githubusercontent.com/MeZenith/dsh-flow/main/prompts' }),
     team: read(raw?.team, { enabled: true, baseUrl: 'http://127.0.0.1:4317' }),
     im: read(raw?.im, { enabled: true, botId: '', targetId: '', webhook: { enabled: false, url: '', kind: 'feishu' } }),
     email: read(raw?.email, {

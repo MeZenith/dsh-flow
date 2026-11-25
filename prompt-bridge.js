@@ -4,11 +4,14 @@
  * 分层策略（对应 Prefix Caching 红线）：
  * - 底座契约走 `systemPrompt.section()`，`order` 取固定最小值，**永不变动**，
  *   因此 system 节点 0 的文本字节级稳定，前缀缓存长期命中。
- * - 模式相关内容（勾选的全局提示词 + 模式专属提示词）走 `systemPrompt.context()`，
+ * - 模式相关内容（勾选的全局提示词 + 模式专属提示词 + 花名册）走 `systemPrompt.context()`，
  *   `text` 是函数，每次装配/准入重新求值；它渲染成追加在末尾的
  *   `<system-reminder>` user 消息，**不动节点 0**。
  * - 切换模式因此**不需要重注册任何东西**：下一 step 的 `refreshContext()` 会自动拿到新文本，
  *   且 `RuntimeContextProjection` 只在内容变化时才追加新快照。
+ *
+ * S4：真正取文本的动作交给 `prompt-store`（三层回落 + mtime 热加载），
+ * 本模块只负责"挂在哪个位置、什么顺序"。
  *
  * @module dsh-flow/prompt-bridge
  */
@@ -30,10 +33,10 @@ const MODE_CONTEXT_ORDER = 500
 /**
  * 注册全局底座 section。
  * @param {import('@deepseek-ai/cordis').Context} ctx 插件上下文。
- * @param {() => object} getConfig 读取当前配置的函数。
+ * @param {{ getConfig: () => object, store?: object }} source 取值来源。
  * @returns {() => void} disposer。
  */
-export function installBaseSection(ctx, getConfig) {
+export function installBaseSection(ctx, source) {
   const order = (() => {
     try {
       return ctx.systemPrompt.getSectionOrder('HARNESS_IDENTITY') + 1
@@ -45,10 +48,12 @@ export function installBaseSection(ctx, getConfig) {
   return ctx.systemPrompt.section({
     name: BASE_SECTION,
     order,
-    // 函数形式：配置被编辑（插件重启后）也能拿到最新值；空串会被 renderPrompt 自动丢弃。
+    // 函数形式：改 md 文件或改配置都能立刻反映；空串会被 renderPrompt 自动丢弃。
     text: () => {
-      const value = getConfig()?.baseRules
-      return typeof value === 'string' ? value : ''
+      const resolved = source.getConfig()?.baseRules
+      const override = typeof resolved === 'string' && resolved.trim() !== '' ? resolved : undefined
+      if (override !== undefined) return override
+      return typeof source.store?.base === 'function' ? source.store.base().text : ''
     },
     // 用户可自由编辑正文；关掉插值，避免正文里出现 `{{...}}` 时把请求打挂。
     interpolate: false,
@@ -62,7 +67,7 @@ export function installBaseSection(ctx, getConfig) {
  * 也挂到自己的 effect 上（双所有者），插件卸载时同样能清干净。
  *
  * @param {import('@deepseek-ai/cordis').Context} agentCtx `agent.ctx`。
- * @param {{ getConfig: () => object, getMode: () => string }} source 取值来源。
+ * @param {{ getConfig: () => object, getMode: () => string, store: object }} source 取值来源。
  * @returns {() => void} disposer。
  */
 export function attachAgentModeContext(agentCtx, source) {
@@ -72,7 +77,7 @@ export function attachAgentModeContext(agentCtx, source) {
     // required：即使某个组合关掉了可选 runtime context，模式约束仍然生效。
     required: true,
     interpolate: false,
-    text: () => buildModeText(source.getConfig(), source.getMode()),
+    text: () => buildModeText(source.getConfig(), source.getMode(), source.store),
   })
 }
 

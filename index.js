@@ -17,6 +17,8 @@ import { createFlowCommand } from './commands.js'
 import { createCompactBridge } from './compact-bridge.js'
 import { createModeProjection, modeOfSession } from './mode-projection.js'
 import { attachAgentModeContext, attachAgentSpecContext, installBaseSection } from './prompt-bridge.js'
+import { createPromptStore } from './prompt-store.js'
+import { DEFAULT_SOURCE_URL, formatUpdateResult, updatePrompts } from './prompt-updater.js'
 import { applyModeSwitch } from './switch-mode.js'
 import { createFlowTools } from './tools.js'
 import { MODE_OFF } from './modes.js'
@@ -26,9 +28,21 @@ import { createEmailChannel } from './notify-email.js'
 import { createImChannel } from './notify-im.js'
 import { createNotifier } from './notify.js'
 import { createTeamWatcher } from './team-sse.js'
-import { appendFileSync, mkdirSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+
+/**
+ * 诊断日志是否开启：配置开关优先，其次环境变量 `DSH_FLOW_DEBUG=1` 临时打开。
+ *
+ * @param {() => object} getConfig
+ * @returns {boolean}
+ */
+function debugLogOn(getConfig) {
+  const env = String(process.env.DSH_FLOW_DEBUG ?? '').trim()
+  if (env === '1' || env.toLowerCase() === 'true') return true
+  return getConfig?.()?.circuit?.debugLog === true
+}
 
 /**
  * 诊断日志出口：同时写宿主日志与自管文件。
@@ -36,31 +50,60 @@ import { join } from 'node:path'
  * 宿主的 `~/.dsh/logs/startup-*.log` 是**启动快照**，运行期日志只到终端；
  * 为了让排障有稳定可贴的文件，这里额外追加到 `~/.dsh/logs/dsh-flow-diag.log`。
  *
+ * 默认关闭：开关不为真时直接返回，连日志目录都不创建。
+ *
  * @param {{ info?: Function }} logger
+ * @param {() => object} getConfig
  * @returns {(message: string) => void}
  */
-function createDiagSink(logger) {
+function createDiagSink(logger, getConfig) {
   let file
-  try {
-    const dir = join(homedir(), '.dsh', 'logs')
-    mkdirSync(dir, { recursive: true })
-    file = join(dir, 'dsh-flow-diag.log')
-  } catch {
-    file = undefined
+  let resolved = false
+
+  /** 首次真正需要写盘时才建目录，避免关掉开关还留个空文件。 */
+  function resolveFile() {
+    if (resolved) return file
+    resolved = true
+    try {
+      const dir = join(homedir(), '.dsh', 'logs')
+      mkdirSync(dir, { recursive: true })
+      file = join(dir, 'dsh-flow-diag.log')
+    } catch {
+      file = undefined
+    }
+    return file
   }
+
   return (message) => {
+    if (!debugLogOn(getConfig)) return
     const line = `${new Date().toISOString()} [flow:diag] ${message}`
     try {
       logger?.info?.(line)
     } catch { /* 忽略日志通道异常 */ }
-    if (file !== undefined) {
+    const target = resolveFile()
+    if (target !== undefined) {
       try {
-        appendFileSync(file, `${line}\n`, 'utf8')
+        appendFileSync(target, `${line}\n`, 'utf8')
       } catch { /* 磁盘不可写时静默 */ }
     }
   }
 }
 
+/**
+ * 在诊断文件里打一行装载基线（只在文件已存在时写，避免给关掉开关的用户凭空建文件）。
+ *
+ * 用途：一眼看出本次装载时开关的实际取值，也能立刻发现是否有旧的插件实例还在写日志。
+ *
+ * @param {() => object} getConfig
+ */
+function markSinkReady(getConfig) {
+  try {
+    const file = join(homedir(), '.dsh', 'logs', 'dsh-flow-diag.log')
+    if (!existsSync(file)) return
+    const enabled = debugLogOn(getConfig)
+    appendFileSync(file, `${new Date().toISOString()} [flow:diag] sink ready enabled=${enabled}\n`, 'utf8')
+  } catch { /* 诊断失败不影响主流程 */ }
+}
 export { Config }
 
 /**
@@ -175,7 +218,10 @@ export function apply(ctx, config) {
       warn: message => scoped.logger.warn(message),
       info: message => scoped.logger.info(message),
     }
-    const diag = createDiagSink(logger)
+    const diag = createDiagSink(logger, getConfig)
+    // S4：提示词仓库（三层回落 + mtime 热加载 + 花名册）。
+    const promptStore = createPromptStore({ getConfig, logger: scoped.logger })
+    markSinkReady(getConfig)
 
     // ---- 2. 可选服务：compaction / userQuestions 用子作用域动态持有 ----
     const compactionHolder = holdOptional(scoped, 'compaction')
@@ -256,7 +302,7 @@ export function apply(ctx, config) {
 
     // ---- 4. 永不变的底座契约（全局 section，固定最小 order）----
     scoped.effect(
-      () => installBaseSection(scoped, getConfig),
+      () => installBaseSection(scoped, { getConfig, store: promptStore }),
       'flow: base section',
     )
 
@@ -268,7 +314,7 @@ export function apply(ctx, config) {
 
       // 双所有者：注册在 agent.ctx 上（Agent 释放即清），同时把拆函数也记在插件侧。
       const disposeMode = agent.ctx.effect(
-        () => attachAgentModeContext(agent.ctx, { getConfig, getMode }),
+        () => attachAgentModeContext(agent.ctx, { getConfig, getMode, store: promptStore }),
         'flow: mode context',
       )
       const disposeSpec = agent.ctx.effect(
@@ -321,6 +367,16 @@ export function apply(ctx, config) {
         breaker,
         im: imChannel,
         email: emailChannel,
+        prompts: {
+          store: promptStore,
+          update: async (signal) => {
+            const sourceUrl = getConfig()?.prompts?.sourceUrl || DEFAULT_SOURCE_URL
+            const result = await updatePrompts({ sourceUrl, root: promptStore.root, signal, logger })
+            // 更新后立刻失效 mtime 缓存，无需重启即生效。
+            promptStore.invalidate()
+            return { result, text: formatUpdateResult(result) }
+          },
+        },
       })),
       'flow: command',
     )

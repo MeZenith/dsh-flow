@@ -77,3 +77,6 @@ desktop.ini
 !/smtp-client.js
 !/smtp-presets.js
 !/team-sse.js
+!/prompt-store.js
+!/prompt-updater.js
+!/prompts/**
