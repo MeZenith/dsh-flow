@@ -18,6 +18,7 @@ import { createCompactBridge } from './compact-bridge.js'
 import { createModeProjection, modeOfSession } from './mode-projection.js'
 import { attachAgentModeContext, attachAgentSpecContext, installBaseSection } from './prompt-bridge.js'
 import { createPromptStore } from './prompt-store.js'
+import { createPromptApi, API_PREFIX } from './prompt-api.js'
 import { DEFAULT_SOURCE_URL, formatUpdateResult, updatePrompts } from './prompt-updater.js'
 import { applyModeSwitch } from './switch-mode.js'
 import { createFlowTools } from './tools.js'
@@ -219,8 +220,18 @@ export function apply(ctx, config) {
       info: message => scoped.logger.info(message),
     }
     const diag = createDiagSink(logger, getConfig)
-    // S4：提示词仓库（三层回落 + mtime 热加载 + 花名册）。
+    // S4：提示词仓库（三层回落 + mtime 热加载 + 子代理覆盖层）。
     const promptStore = createPromptStore({ getConfig, logger: scoped.logger })
+
+    /** 一键更新：命令行与本地接口共用同一实现。 */
+    const runPromptUpdate = async (signal) => {
+      const config = getConfig()
+      const sourceUrl = config?.prompts?.sourceUrl || DEFAULT_SOURCE_URL
+      const allowMirrorFallback = config?.prompts?.allowMirrorFallback !== false
+      const result = await updatePrompts({ sourceUrl, root: promptStore.root, signal, logger, allowMirrorFallback })
+      promptStore.invalidate()
+      return { result, text: formatUpdateResult(result) }
+    }
     markSinkReady(getConfig)
 
     // ---- 2. 可选服务：compaction / userQuestions 用子作用域动态持有 ----
@@ -369,17 +380,27 @@ export function apply(ctx, config) {
         email: emailChannel,
         prompts: {
           store: promptStore,
-          update: async (signal) => {
-            const sourceUrl = getConfig()?.prompts?.sourceUrl || DEFAULT_SOURCE_URL
-            const result = await updatePrompts({ sourceUrl, root: promptStore.root, signal, logger })
-            // 更新后立刻失效 mtime 缓存，无需重启即生效。
-            promptStore.invalidate()
-            return { result, text: formatUpdateResult(result) }
-          },
+          update: runPromptUpdate,
         },
       })),
       'flow: command',
     )
+
+    // ---- 7c. 本地回环接口：设置页读写提示词（宿主无 webServer 时静默跳过）----
+    ctx.inject(['webServer'], (httpCtx) => {
+      try {
+        const api = createPromptApi({ store: promptStore, update: runPromptUpdate })
+        for (const route of api.routes()) {
+          httpCtx.effect(
+            () => httpCtx.webServer.register(route),
+            `flow: ${route.path}`,
+          )
+        }
+        logger.info(`flow: 已挂载提示词接口 ${API_PREFIX}`)
+      } catch (error) {
+        logger.warn(`flow: 提示词接口挂载失败 → ${error instanceof Error ? error.message : String(error)}`)
+      }
+    })
 
     // ---- 7b. 内部命令：把熔断告警渲染成一条可见命令行（0 token、不进模型上下文）----
     scoped.effect(

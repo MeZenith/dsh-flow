@@ -189,7 +189,12 @@ export const Config = z.object({
   /** 提示词更新源：默认官方仓库 raw 目录，可填镜像或自建地址。 */
   prompts: z.object({
     sourceUrl: z.string().default('https://raw.githubusercontent.com/MeZenith/dsh-flow/main/prompts'),
-  }).default({ sourceUrl: 'https://raw.githubusercontent.com/MeZenith/dsh-flow/main/prompts' }).volatile(),
+    /** 主源不可达时是否允许回退到内置镜像。 */
+    allowMirrorFallback: z.boolean().default(true),
+  }).default({
+    sourceUrl: 'https://raw.githubusercontent.com/MeZenith/dsh-flow/main/prompts',
+    allowMirrorFallback: true,
+  }).volatile(),
 
   team: z.object({
     enabled: z.boolean().default(true),
@@ -276,7 +281,10 @@ export function plainConfigOf(raw) {
     spec: read(raw?.spec, { enabled: true, path: DEFAULT_SPEC_PATH, maxChars: 600 }),
     behavior: read(raw?.behavior, {}),
     circuit: read(raw?.circuit, { enabled: true, threshold: 3, rescueModel: '', idleSeconds: 120, debugLog: false }),
-    prompts: read(raw?.prompts, { sourceUrl: 'https://raw.githubusercontent.com/MeZenith/dsh-flow/main/prompts' }),
+    prompts: read(raw?.prompts, {
+      sourceUrl: 'https://raw.githubusercontent.com/MeZenith/dsh-flow/main/prompts',
+      allowMirrorFallback: true,
+    }),
     team: read(raw?.team, { enabled: true, baseUrl: 'http://127.0.0.1:4317' }),
     im: read(raw?.im, { enabled: true, botId: '', targetId: '', webhook: { enabled: false, url: '', kind: 'feishu' } }),
     email: read(raw?.email, {

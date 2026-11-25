@@ -1047,7 +1047,7 @@ window.__ModuleLoader__.load({
      * 设置页
      * ================================================================ */
 
-    const TABS = ['modes', 'prompts', 'gate', 'base', 'notify']
+    const TABS = ['modes', 'prompts', 'workflow', 'notify']
 
     function FlowSettingsCard(props) {
       const { appCtx, t } = props
@@ -1067,6 +1067,58 @@ window.__ModuleLoader__.load({
        * 之后由 `snapshot` 接管显示。这样连续点选不会被上一笔写盘卡住。
        */
       const [overrides, setOverrides] = useState({})
+
+      /* ---------------- 提示词库：本地回环接口数据源 ---------------- */
+
+      const [promptData, setPromptData] = useState(null)
+      const [promptApiState, setPromptApiState] = useState('loading')
+      const [reloadToken, setReloadToken] = useState(0)
+      const [libTab, setLibTab] = useState('base')
+      const [sourceOpen, setSourceOpen] = useState(false)
+      const [rosterOpen, setRosterOpen] = useState(false)
+      const [rosterDraft, setRosterDraft] = useState('')
+      const [activeAgent, setActiveAgent] = useState('')
+      const [agentDraft, setAgentDraft] = useState('')
+      const [newAgentId, setNewAgentId] = useState('')
+      const [creating, setCreating] = useState(false)
+      const [busy, setBusy] = useState('')
+      const [feedback, setFeedback] = useState(null)
+
+      /** 拉取提示词概览；接口缺失时进入降级态。 */
+      useEffect(() => {
+        let alive = true
+        fetch('/api/dsh-flow/prompts', { headers: { accept: 'application/json' } })
+          .then(response => (response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`))))
+          .then((payload) => {
+            if (!alive) return
+            if (payload?.ok !== true) {
+              setPromptApiState('unavailable')
+              return
+            }
+            setPromptData(payload.data)
+            setPromptApiState('ready')
+          })
+          .catch(() => {
+            if (alive) setPromptApiState('unavailable')
+          })
+        return () => { alive = false }
+      }, [reloadToken])
+
+      /** 数据到达或切换子代理时，同步草稿与默认选中项。 */
+      useEffect(() => {
+        if (promptData === null) return
+        setRosterDraft(promptData.roster?.content ?? '')
+        const list = promptData.subagents ?? []
+        if (list.length === 0) {
+          setActiveAgent('')
+          setAgentDraft('')
+          return
+        }
+        if (!list.some(item => item.id === activeAgent)) {
+          setActiveAgent(list[0].id)
+          setAgentDraft(list[0].content ?? '')
+        }
+      }, [promptData, activeAgent])
 
       useEffect(() => {
         let alive = true
@@ -1198,6 +1250,7 @@ window.__ModuleLoader__.load({
 
       const sets = Array.isArray(value.promptSets) ? value.promptSets : []
       const modes = value && typeof value.modes === 'object' && value.modes !== null ? value.modes : {}
+      const promptsCfg = value && typeof value.prompts === 'object' && value.prompts !== null ? value.prompts : {}
 
       /**
        * 模式显示名统一从这里取：优先配置里可改的 label，回落内置副本。
@@ -1218,13 +1271,24 @@ window.__ModuleLoader__.load({
       }
       const unsetField = (path) => { void mutate([{ op: 'unset', path }]) }
 
+      /** 复选行：原生 checkbox 已由 `.dsh-flow-checkbox` 对齐主题色，无需自绘。 */
+      const checkboxRow = input => h('label', { className: 'dsh-flow-toggle' },
+        h('input', {
+          type: 'checkbox',
+          className: 'dsh-flow-checkbox',
+          checked: input.checked,
+          disabled,
+          onChange: event => { input.onChange(event.target.checked) },
+        }),
+        h('span', { className: 'dsh-flow-togglelabel' }, input.label),
+      )
+
       /* ---------------- 顶部三栏分段 Tab ---------------- */
 
       const tabDefs = [
         { id: 'modes', label: t('tab.modes') },
         { id: 'prompts', label: t('tab.prompts') },
-        { id: 'gate', label: t('tab.gate') },
-        { id: 'base', label: t('tab.base') },
+        { id: 'workflow', label: t('tab.workflow') },
         { id: 'notify', label: t('tab.notify') },
       ]
 
@@ -1295,12 +1359,20 @@ window.__ModuleLoader__.load({
             }, t('common.reset')),
           ),
           h(TextField, {
-            value: typeof activeCfg?.prompt === 'string' ? activeCfg.prompt : '',
+            value: typeof activeCfg?.prompt === 'string' && activeCfg.prompt !== ''
+              ? activeCfg.prompt
+              : (Array.isArray(promptData?.modes)
+                ? (promptData.modes.find(item => item.id === activeMode)?.content ?? '')
+                : ''),
             multiline: true,
             rows: 14,
             disabled,
             onCommit: next => { setField(['modes', activeMode, 'prompt'], next) },
           }),
+          h('span', { className: 'dsh-flow-hint' },
+            typeof activeCfg?.prompt === 'string' && activeCfg.prompt !== ''
+              ? t('common.custom')
+              : t('common.builtin')),
         ),
         h('div', { className: 'dsh-flow-hint' }, t('settings.sectionBHint')),
       )
@@ -1445,33 +1517,349 @@ window.__ModuleLoader__.load({
             }, t('common.reset')),
           ),
           h(TextField, {
-            value: typeof value.baseRules === 'string' ? value.baseRules : '',
+            value: typeof value.baseRules === 'string' && value.baseRules !== ''
+              ? value.baseRules
+              : (promptData?.base?.content ?? ''),
             multiline: true,
             rows: 14,
             disabled,
             onCommit: next => { setField(['baseRules'], next) },
           }),
-          h('span', { className: 'dsh-flow-hint' }, t('base.hint')),
+          h('span', { className: 'dsh-flow-hint' },
+            typeof value.baseRules === 'string' && value.baseRules !== ''
+              ? t('common.custom')
+              : t('common.builtin')),
         ),
+      )
+
+      /* ---------------- Tab 2：提示词库（本地接口） ---------------- */
+
+      const refreshPrompts = () => { setReloadToken(token => token + 1) }
+
+      /** 统一的接口调用：非 2xx 或 ok!==true 一律抛错，交给调用方回显。 */
+      const apiCall = async (method, path, body) => {
+        const response = await fetch(path, {
+          method,
+          headers: body === undefined
+            ? { accept: 'application/json' }
+            : { 'content-type': 'application/json', accept: 'application/json' },
+          body: body === undefined ? undefined : JSON.stringify(body),
+        })
+        let payload = null
+        try { payload = await response.json() } catch { payload = null }
+        if (!response.ok || payload?.ok !== true) {
+          throw new Error(payload?.error ?? `HTTP ${response.status}`)
+        }
+        return payload
+      }
+
+      /** 统一的忙碌包装：失败写回执，成功交给调用方。 */
+      const runBusy = async (key, task) => {
+        setBusy(key)
+        setFeedback(null)
+        try {
+          await task()
+        } catch (error) {
+          setFeedback({ kind: 'error', text: t('lib.failed').replace('{reason}', error instanceof Error ? error.message : String(error)) })
+        } finally {
+          setBusy('')
+        }
+      }
+
+      const activeAgentItem = Array.isArray(promptData?.subagents)
+        ? promptData.subagents.find(item => item.id === activeAgent)
+        : undefined
+
+      /** 子代理状态标签。 */
+      const agentBadge = (item) => {
+        if (item === undefined) return ''
+        if (item.kind === 'custom') return t('lib.customOnly')
+        return item.overridden ? t('lib.builtinCustom') : t('lib.builtinOnly')
+      }
+
+      const rosterBadge = promptData?.roster?.hasCustom === true ? t('common.custom') : t('common.builtin')
+
+      const libPills = h('div', { className: 'dsh-flow-pills' },
+        [
+          { id: 'base', label: t('lib.tabBase') },
+          { id: 'global', label: t('lib.tabGlobal') },
+          { id: 'agents', label: t('lib.tabAgents') },
+        ].map(item => h('button', {
+          key: item.id,
+          type: 'button',
+          className: 'dsh-flow-pill',
+          'data-active': libTab === item.id ? 'true' : 'false',
+          'aria-pressed': libTab === item.id ? 'true' : 'false',
+          onClick: () => { setLibTab(item.id) },
+        }, item.label)),
+      )
+
+      /** 顶部同步工具条：左侧版本信息，右侧检查更新与更新源设置。 */
+      const syncToolbar = h('div', {
+        className: 'dsh-flow-modecard',
+        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' },
+      },
+        h('div', { style: { display: 'grid', gap: '2px' } },
+          h('span', { className: 'dsh-flow-fieldlabel' },
+            t('lib.versionLine')
+              .replace('{version}', promptData?.version || '—')
+              .replace('{count}', String(promptData?.fileCount ?? 0))),
+          h('span', { className: 'dsh-flow-hint' },
+            promptApiState === 'unavailable'
+              ? t('lib.apiUnavailable')
+              : t('lib.updatedAt').replace('{at}', promptData?.updatedAt ? new Date(promptData.updatedAt).toLocaleString() : '—')),
+        ),
+        h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+          h('button', {
+            type: 'button',
+            className: 'dsh-flow-btn',
+            disabled: disabled || promptApiState === 'unavailable' || busy === 'update',
+            onClick: () => {
+              void runBusy('update', async () => {
+                const payload = await apiCall('POST', '/api/dsh-flow/prompts/update')
+                const result = payload.result ?? {}
+                const lines = [
+                  t('lib.updateDone')
+                    .replace('{updated}', String(Array.isArray(result.updated) ? result.updated.length : 0))
+                    .replace('{skipped}', String(Array.isArray(result.skipped) ? result.skipped.length : 0)),
+                  t('lib.updateSource').replace('{source}', String(result.source ?? '')),
+                ]
+                if (result.fallback === true) {
+                  lines.push(t('lib.updateFallback').replace('{reason}', String(result.primaryError ?? '')))
+                }
+                setFeedback({ kind: result.ok === false ? 'error' : 'ok', text: lines.join(' ') })
+                refreshPrompts()
+              })
+            },
+          }, busy === 'update' ? t('lib.updating') : t('lib.checkUpdate')),
+          h('button', {
+            type: 'button',
+            className: 'dsh-flow-btn',
+            onClick: () => { setSourceOpen(open => !open) },
+          }, sourceOpen ? t('lib.sourceCollapse') : t('lib.sourceExpand')),
+        ),
+      )
+
+      /** 更新源设置：主源地址与镜像回退开关。 */
+      const sourcePanel = sourceOpen
+        ? h('div', { className: 'dsh-flow-modecard' },
+          h('div', { className: 'dsh-flow-field' },
+            h('span', { className: 'dsh-flow-fieldlabel' }, t('lib.sourceUrl')),
+            h(TextField, {
+              value: typeof promptsCfg.sourceUrl === 'string' ? promptsCfg.sourceUrl : '',
+              disabled,
+              placeholder: 'https://raw.githubusercontent.com/MeZenith/dsh-flow/main/prompts',
+              onCommit: next => { setField(['prompts', 'sourceUrl'], next.trim()) },
+            }),
+            h('span', { className: 'dsh-flow-hint' }, t('lib.sourceUrlHint')),
+          ),
+          h('div', { className: 'dsh-flow-field' },
+            checkboxRow({
+              label: t('lib.allowMirror'),
+              checked: promptsCfg.allowMirrorFallback !== false,
+              onChange: next => { setField(['prompts', 'allowMirrorFallback'], next) },
+            }),
+            h('span', { className: 'dsh-flow-hint' }, t('lib.allowMirrorHint')),
+          ),
+        )
+        : null
+
+      /** 子代理目录卡片：默认折叠。 */
+      const rosterCard = h('div', { className: 'dsh-flow-modecard' },
+        h('div', { className: 'dsh-flow-fieldhead' },
+          h('span', { className: 'dsh-flow-fieldlabel' }, t('lib.rosterTitle')),
+          h('span', { className: 'dsh-flow-hint' }, rosterBadge),
+          h('button', {
+            type: 'button',
+            className: 'dsh-flow-btn',
+            disabled: promptApiState === 'unavailable',
+            onClick: () => { setRosterOpen(open => !open) },
+          }, rosterOpen ? t('lib.collapse') : t('lib.expandEdit')),
+        ),
+        rosterOpen
+          ? h('div', { style: { display: 'grid', gap: '8px' } },
+            h(TextField, {
+              value: rosterDraft,
+              multiline: true,
+              rows: 12,
+              disabled,
+              onCommit: next => { setRosterDraft(next) },
+            }),
+            h('div', { style: { display: 'flex', gap: '8px' } },
+              h('button', {
+                type: 'button',
+                className: 'dsh-flow-btn',
+                disabled: disabled || busy === 'roster',
+                onClick: () => {
+                  void runBusy('roster', async () => {
+                    await apiCall('PUT', '/api/dsh-flow/roster', { content: rosterDraft })
+                    setFeedback({ kind: 'ok', text: t('lib.saved') })
+                    refreshPrompts()
+                  })
+                },
+              }, busy === 'roster' ? t('lib.saving') : t('common.save')),
+              h('button', {
+                type: 'button',
+                className: 'dsh-flow-btn',
+                disabled: disabled || busy === 'roster',
+                onClick: () => {
+                  void runBusy('roster', async () => {
+                    await apiCall('DELETE', '/api/dsh-flow/roster')
+                    setFeedback({ kind: 'ok', text: t('lib.reset') })
+                    refreshPrompts()
+                  })
+                },
+              }, t('common.reset')),
+            ),
+          )
+          : null,
+      )
+
+      /** 新增子代理行：输入英文 ID 后创建模板。 */
+      const newAgentRow = creating
+        ? h('div', { style: { display: 'flex', gap: '8px', alignItems: 'flex-end' } },
+          h('div', { className: 'dsh-flow-field', style: { flex: '1 1 auto' } },
+            h(TextField, {
+              value: newAgentId,
+              disabled,
+              placeholder: t('lib.newAgentPlaceholder'),
+              onCommit: next => { setNewAgentId(next.trim()) },
+            }),
+          ),
+          h('button', {
+            type: 'button',
+            className: 'dsh-flow-btn',
+            disabled: disabled || busy === 'create',
+            onClick: () => {
+              const id = newAgentId.trim()
+              if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(id)) {
+                setFeedback({ kind: 'error', text: t('lib.badId') })
+                return
+              }
+              void runBusy('create', async () => {
+                await apiCall('PUT', `/api/dsh-flow/subagents/${encodeURIComponent(id)}`, {
+                  content: `# ${id}\n\n## 身份\n\n你是执行子代理，向总控返回结构化回执。\n\n## 文件边界\n\n（填写可修改的范围）\n\n## 工作方法\n\n1. （填写步骤）\n\n## 输出格式\n\n（填写回执结构）\n`,
+                })
+                setFeedback({ kind: 'ok', text: t('lib.created').replace('{id}', id) })
+                setNewAgentId('')
+                setCreating(false)
+                setActiveAgent(id)
+                refreshPrompts()
+              })
+            },
+          }, t('lib.create')),
+          h('button', { type: 'button', className: 'dsh-flow-btn', onClick: () => { setCreating(false); setNewAgentId('') } }, t('lib.cancel')),
+        )
+        : null
+
+      /** 子代理提示词卡片：胶囊切换 + 正文编辑 + 保存/恢复默认/删除。 */
+      const agentsCard = h('div', { className: 'dsh-flow-modecard' },
+        h('div', { className: 'dsh-flow-fieldhead' },
+          h('span', { className: 'dsh-flow-fieldlabel' }, t('lib.agentTitle')),
+          h('span', { className: 'dsh-flow-hint' }, agentBadge(activeAgentItem)),
+          h('button', {
+            type: 'button',
+            className: 'dsh-flow-btn',
+            disabled: disabled || promptApiState === 'unavailable',
+            onClick: () => { setCreating(value2 => !value2) },
+          }, t('lib.newAgent')),
+        ),
+        newAgentRow,
+        (promptData?.subagents ?? []).length === 0
+          ? h('span', { className: 'dsh-flow-hint' }, t('lib.noAgents'))
+          : h('div', { className: 'dsh-flow-pills' },
+            (promptData?.subagents ?? []).map(item => h('button', {
+              key: item.id,
+              type: 'button',
+              className: 'dsh-flow-pill',
+              'data-active': activeAgent === item.id ? 'true' : 'false',
+              'aria-pressed': activeAgent === item.id ? 'true' : 'false',
+              onClick: () => {
+                setActiveAgent(item.id)
+                setAgentDraft(item.content ?? '')
+              },
+            }, item.id)),
+        ),
+        activeAgentItem === undefined
+          ? null
+          : h('div', { style: { display: 'grid', gap: '8px' } },
+            h(TextField, {
+              value: agentDraft,
+              multiline: true,
+              rows: 14,
+              disabled,
+              onCommit: next => { setAgentDraft(next) },
+            }),
+            h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+              h('button', {
+                type: 'button',
+                className: 'dsh-flow-btn',
+                disabled: disabled || busy === 'agent',
+                onClick: () => {
+                  const id = activeAgentItem.id
+                  void runBusy('agent', async () => {
+                    await apiCall('PUT', `/api/dsh-flow/subagents/${encodeURIComponent(id)}`, { content: agentDraft })
+                    setFeedback({ kind: 'ok', text: t('lib.saved') })
+                    refreshPrompts()
+                  })
+                },
+              }, busy === 'agent' ? t('lib.saving') : t('common.save')),
+              activeAgentItem.kind === 'official'
+                ? h('button', {
+                  type: 'button',
+                  className: 'dsh-flow-btn',
+                  disabled: disabled || busy === 'agent' || activeAgentItem.overridden !== true,
+                  onClick: () => {
+                    const id = activeAgentItem.id
+                    void runBusy('agent', async () => {
+                      await apiCall('DELETE', `/api/dsh-flow/subagents/${encodeURIComponent(id)}`)
+                      setFeedback({ kind: 'ok', text: t('lib.reset') })
+                      refreshPrompts()
+                    })
+                  },
+                }, t('common.reset'))
+                : h('button', {
+                  type: 'button',
+                  className: 'dsh-flow-btn',
+                  disabled: disabled || busy === 'agent',
+                  onClick: () => {
+                    const id = activeAgentItem.id
+                    void runBusy('agent', async () => {
+                      await apiCall('DELETE', `/api/dsh-flow/subagents/${encodeURIComponent(id)}`)
+                      setFeedback({ kind: 'ok', text: t('lib.deleted') })
+                      setActiveAgent('')
+                      refreshPrompts()
+                    })
+                  },
+                }, t('common.delete')),
+            ),
+            h('span', { className: 'dsh-flow-hint' },
+              t('lib.effectivePath').replace('{path}', String(activeAgentItem.resolvedPath ?? ''))),
+          ),
+      )
+
+      const feedbackRow = feedback === null
+        ? null
+        : h('div', {
+          className: feedback.kind === 'error' ? 'dsh-flow-error' : 'dsh-flow-hint',
+          role: feedback.kind === 'error' ? 'alert' : undefined,
+        }, feedback.text)
+
+      const promptLibraryPanel = h('div', { role: 'tabpanel', style: { display: 'grid', gap: '16px' } },
+        syncToolbar,
+        sourcePanel,
+        feedbackRow,
+        libPills,
+        libTab === 'base' ? basePanel : null,
+        libTab === 'global' ? promptsPanel : null,
+        libTab === 'agents' ? h('div', { style: { display: 'grid', gap: '16px' } }, rosterCard, agentsCard) : null,
       )
 
       /* ---------------- Tab 3：工作流与门禁 ---------------- */
 
       const gateSpec = value && typeof value.spec === 'object' && value.spec !== null ? value.spec : {}
       const gateBehavior = value && typeof value.behavior === 'object' && value.behavior !== null ? value.behavior : {}
-      const promptsCfg = value && typeof value.prompts === 'object' && value.prompts !== null ? value.prompts : {}
 
-      /** 复选行：原生 checkbox 已由 `.dsh-flow-checkbox` 对齐主题色，无需自绘。 */
-      const checkboxRow = input => h('label', { className: 'dsh-flow-toggle' },
-        h('input', {
-          type: 'checkbox',
-          className: 'dsh-flow-checkbox',
-          checked: input.checked,
-          disabled,
-          onChange: event => { input.onChange(event.target.checked) },
-        }),
-        h('span', { className: 'dsh-flow-togglelabel' }, input.label),
-      )
 
       const gatePanel = h('div', { className: 'dsh-flow-panelbody', role: 'tabpanel' },
         h('div', { className: 'dsh-flow-field' },
@@ -1811,7 +2199,6 @@ window.__ModuleLoader__.load({
       )
 
       const notifyPanel = h('div', { role: 'tabpanel', style: { display: 'grid', gap: '16px' } },
-        circuitCard,
         imCard,
         emailCard,
         flowCard,
@@ -1832,9 +2219,11 @@ window.__ModuleLoader__.load({
           modePills,
           modeCard,
         ) : null,
-        tab === 'prompts' ? promptsPanel : null,
-        tab === 'gate' ? gatePanel : null,
-        tab === 'base' ? basePanel : null,
+        tab === 'prompts' ? promptLibraryPanel : null,
+        tab === 'workflow' ? h('div', { role: 'tabpanel', style: { display: 'grid', gap: '16px' } },
+          gatePanel,
+          circuitCard,
+        ) : null,
         tab === 'notify' ? notifyPanel : null,
       )
     }
@@ -1859,10 +2248,9 @@ window.__ModuleLoader__.load({
       'settings.sectionAHint': '每套提示词可勾选生效模式；勾选的模式会把它追加到该模式的专属提示词之前。',
       'settings.sectionBHint': '默认模型只在切换模式的那一刻应用一次；之后你在对话框里手动换模型都生效。',
       'tab.modes': '五大模式',
-      'tab.prompts': '全局提示词',
-      'tab.gate': '工作流与门禁',
-      'tab.base': '底座契约',
-      'tab.notify': '熔断与通知',
+      'tab.prompts': '提示词库',
+      'tab.workflow': '工作流与熔断',
+      'tab.notify': '通知与联动',
       'settings.saving': '保存中…',
       'notify.cardCircuit': '熔断与空闲设置',
       'notify.cardIm': 'IM 渠道与 Webhook',
@@ -1876,18 +2264,59 @@ window.__ModuleLoader__.load({
       'notify.circuitEnabled': '启用连续报错熔断',
       'notify.circuitHint': '同一会话内工具连续失败达到阈值即急刹并锁定，成功后计数清零。',
       'notify.thresholdHint': '连续失败达到该次数触发熔断（默认 3）。',
-      'notify.rescueModel': '救场强模型',
+      'notify.rescueModel': '诊断模型',
       'notify.rescueModelHint': '格式 provider::model，例如 deepseek::deepseek-chat；留空则回复 2 时只重投不换模型。',
       'notify.idleHint': '桌面空闲秒数：距你最后一次发消息超过该值才发提醒（0 表示立刻发）。',
       'notify.debugLog': '记录诊断日志（默认关闭）',
       'notify.debugLogHint': '开启后把熔断与遥控链路写入 ~/.dsh/logs/dsh-flow-diag.log；也可用环境变量 DSH_FLOW_DEBUG=1 临时开启。',
-      'gate.autonomy': 'Flow 托管档位',
-      'gate.autonomyOneGate': '一次拍板全托管（推荐）',
-      'gate.autonomyStep': '每阶段均确认',
-      'gate.autonomyHint': '一次拍板：批准方案后自动施工、自测、独立验收，内部返工最多 3 轮；每阶段确认：每一步都停下来等你点头。',
+      'gate.autonomy': 'Flow 执行模式',
+      'gate.autonomyOneGate': '全托管（推荐）',
+      'gate.autonomyStep': '分阶段确认',
+      'gate.autonomyHint': '全托管在方案批准后自动完成开发、自测与验收；分阶段确认在每个阶段暂停。',
       'gate.promptsUrl': '提示词更新源',
-      'gate.promptsUrlHint': '默认官方仓库 raw 目录，可换成镜像或自建地址；留空即用默认。主源不可达时会自动改用内置镜像（jsDelivr）。',
-      'gate.promptsDirHint': '提示词已改为 Markdown 文件化：改 prompts/*.md 立刻生效，无需重启。版本与清单用 /flow prompts list 查看，拉取最新版用 /flow prompts update（不会覆盖 custom 私有目录与你手改的覆盖文本）。',
+      'gate.promptsUrlHint': '留空使用官方默认源。',
+      'gate.promptsDirHint': '提示词以 Markdown 文件存储，修改后即时生效。',
+      'common.save': '保存',
+      'common.custom': '已自定义',
+      'common.builtin': '内置默认',
+      'common.delete': '删除',
+      'lib.versionLine': '版本 {version} · {count} 个文件',
+      'lib.updatedAt': '更新于 {at}',
+      'lib.apiUnavailable': '本地接口不可用，请改用 /flow prompts update',
+      'lib.checkUpdate': '检查更新',
+      'lib.updating': '正在更新…',
+      'lib.sourceExpand': '更新源设置',
+      'lib.sourceCollapse': '收起更新源',
+      'lib.sourceUrl': '提示词源地址',
+      'lib.sourceUrlHint': '留空使用官方默认源。',
+      'lib.allowMirror': '允许镜像回退',
+      'lib.allowMirrorHint': '主源不可达时改用镜像源。',
+      'lib.tabBase': '底座契约',
+      'lib.tabGlobal': '全局提示词',
+      'lib.tabAgents': '子代理与目录',
+      'lib.rosterTitle': '子代理目录',
+      'lib.expandEdit': '展开编辑',
+      'lib.collapse': '收起',
+      'lib.newAgent': '+ 新增子代理',
+      'lib.newAgentPlaceholder': '英文 ID，例如 mod-dev',
+      'lib.create': '创建',
+      'lib.cancel': '取消',
+      'lib.agentTitle': '子代理提示词',
+      'lib.builtinOnly': '内置',
+      'lib.builtinCustom': '内置 · 已自定义',
+      'lib.customOnly': '自定义',
+      'lib.noAgents': '暂无可编辑的子代理',
+      'lib.saved': '已保存',
+      'lib.saving': '保存中…',
+      'lib.reset': '已恢复默认',
+      'lib.deleted': '已删除',
+      'lib.created': '已创建 {id}',
+      'lib.badId': 'ID 需以字母或数字开头，仅含字母、数字、下划线或连字符',
+      'lib.failed': '操作失败：{reason}',
+      'lib.effectivePath': '生效路径：{path}',
+      'lib.updateDone': '更新 {updated} 个文件，跳过 {skipped} 个',
+      'lib.updateSource': '源：{source}',
+      'lib.updateFallback': '主源不可达：{reason}',
       'notify.teamEnabled': '联动 dsh-team-control',
       'notify.teamHint': '后台订阅团队事件流，服务未启动时会静默退避重连，不影响主流程。',
       'notify.teamUrl': 'team-control 地址',
@@ -1920,7 +2349,7 @@ window.__ModuleLoader__.load({
       'notify.testHint': '自检方式：在输入框执行 /flow notify-test，会当场回报 IM 与邮箱的成败原因（含 SMTP 实际通路）。',
       'threshold': '连续失败阈值',
       'idleSeconds': '桌面空闲秒数',
-      'rescueModel': '救场强模型',
+      'rescueModel': '诊断模型',
       'teamUrl': 'team-control 地址',
       'botId': '机器人 botId',
       'targetId': '投递目标 targetId',
@@ -1936,7 +2365,7 @@ window.__ModuleLoader__.load({
       'security': '加密方式',
       'kind': 'Webhook 类型',
       'brake': '熔断告警策略',
-      'gate': '待拍板提醒策略',
+      'gate': '阶段提醒策略',
       'team': '团队异常策略',
       'archive': '定稿/完结策略',
       'base.title': '底座契约',
@@ -1947,7 +2376,7 @@ window.__ModuleLoader__.load({
       'gate.specMaxChars': '摘要字符上限',
       'gate.autoCompact': '阶段确认通过后自动压缩上下文',
       'gate.autoCompactHint': '仅在你点「同意」、模式切换完成且本回合结束后触发一次原生压缩；遇到忙碌会自动重试。',
-      'gate.remoteHint': '远程审批提示：Flow 的开局四选一与阶段确认均走 DSH 原生提问框；若需通过 dsh-im 透传到微信 / 飞书，请确保当前会话已绑定开启双向同步的私聊。',
+      'gate.remoteHint': '阶段确认通过 DSH 原生提问框；如需转发到微信或飞书，请确保会话已绑定开启双向同步的私聊。',
       'set.add': '新增提示词',
       'set.newName': '未命名提示词',
       'set.name': '名称',
@@ -1991,11 +2420,10 @@ window.__ModuleLoader__.load({
       'settings.readonly': 'This configuration is read-only (provided by a higher composition layer).',
       'settings.sectionAHint': 'Tick the modes each prompt applies to; ticked prompts precede the mode prompt.',
       'settings.sectionBHint': 'The default model is applied once, at switch time. Later manual model changes always win.',
-      'tab.modes': 'Five modes',
-      'tab.prompts': 'Global prompts',
-      'tab.gate': 'Workflow & gates',
-      'tab.base': 'Base contract',
-      'tab.notify': 'Breaker & notify',
+      'tab.modes': 'Modes',
+      'tab.prompts': 'Prompts',
+      'tab.workflow': 'Workflow & breaker',
+      'tab.notify': 'Notify & hooks',
       'settings.saving': 'Saving…',
       'notify.cardCircuit': 'Breaker & idle',
       'notify.cardIm': 'IM channel & webhook',
@@ -2009,18 +2437,59 @@ window.__ModuleLoader__.load({
       'notify.circuitEnabled': 'Enable consecutive-failure breaker',
       'notify.circuitHint': 'Trips when tool failures in one session reach the threshold; any success resets the count.',
       'notify.thresholdHint': 'Consecutive failures that trip the breaker (default 3).',
-      'notify.rescueModel': 'Rescue model',
+      'notify.rescueModel': 'Diagnosis model',
       'notify.rescueModelHint': 'Format provider::model, e.g. deepseek::deepseek-chat. Empty means reply 2 re-sends without switching.',
       'notify.idleHint': 'Desktop idle seconds: notify only after this long since your last message (0 = immediately).',
       'notify.debugLog': 'Write diagnostic log (off by default)',
       'notify.debugLogHint': 'When on, breaker and remote-control traces go to ~/.dsh/logs/dsh-flow-diag.log; DSH_FLOW_DEBUG=1 also enables it.',
-      'gate.autonomy': 'Flow autonomy level',
-      'gate.autonomyOneGate': 'One approval, fully autonomous (recommended)',
-      'gate.autonomyStep': 'Confirm every stage',
-      'gate.autonomyHint': 'One approval: after the plan is approved it builds, self-tests and reviews on its own with up to 3 internal rework rounds. Every stage: it stops for your go-ahead each time.',
+      'gate.autonomy': 'Flow execution mode',
+      'gate.autonomyOneGate': 'Fully managed (recommended)',
+      'gate.autonomyStep': 'Confirm each stage',
+      'gate.autonomyHint': 'Fully managed runs development, self-test and review after approval; stage-by-stage pauses at each stage.',
       'gate.promptsUrl': 'Prompt update source',
       'gate.promptsUrlHint': 'Defaults to the official raw directory; point it at a mirror or your own host. Empty means default. If the primary source is unreachable it falls back to a built-in mirror (jsDelivr).',
-      'gate.promptsDirHint': 'Prompts now live as Markdown files: editing prompts/*.md takes effect immediately without a restart. Use /flow prompts list for the version and inventory, /flow prompts update to pull the latest (never touches custom/ or your overrides).',
+      'gate.promptsDirHint': 'Prompts are stored as Markdown files and take effect on save.',
+      'common.save': 'Save',
+      'common.custom': 'Customized',
+      'common.builtin': 'Built-in default',
+      'common.delete': 'Delete',
+      'lib.versionLine': 'Version {version} · {count} files',
+      'lib.updatedAt': 'Updated {at}',
+      'lib.apiUnavailable': 'Local API unavailable; use /flow prompts update instead',
+      'lib.checkUpdate': 'Check for updates',
+      'lib.updating': 'Updating…',
+      'lib.sourceExpand': 'Update source',
+      'lib.sourceCollapse': 'Hide source',
+      'lib.sourceUrl': 'Prompt source URL',
+      'lib.sourceUrlHint': 'Leave empty to use the official default.',
+      'lib.allowMirror': 'Allow mirror fallback',
+      'lib.allowMirrorHint': 'Use a mirror when the primary source is unreachable.',
+      'lib.tabBase': 'Base contract',
+      'lib.tabGlobal': 'Global prompts',
+      'lib.tabAgents': 'Subagents & roster',
+      'lib.rosterTitle': 'Subagent roster',
+      'lib.expandEdit': 'Edit',
+      'lib.collapse': 'Collapse',
+      'lib.newAgent': '+ New subagent',
+      'lib.newAgentPlaceholder': 'English ID, e.g. mod-dev',
+      'lib.create': 'Create',
+      'lib.cancel': 'Cancel',
+      'lib.agentTitle': 'Subagent prompts',
+      'lib.builtinOnly': 'Built-in',
+      'lib.builtinCustom': 'Built-in · customized',
+      'lib.customOnly': 'Custom',
+      'lib.noAgents': 'No subagents yet',
+      'lib.saved': 'Saved',
+      'lib.saving': 'Saving…',
+      'lib.reset': 'Restored to default',
+      'lib.deleted': 'Deleted',
+      'lib.created': 'Created {id}',
+      'lib.badId': 'ID must start with a letter or digit and contain only letters, digits, underscores or hyphens',
+      'lib.failed': 'Failed: {reason}',
+      'lib.effectivePath': 'Effective path: {path}',
+      'lib.updateDone': 'Updated {updated} files, skipped {skipped}',
+      'lib.updateSource': 'Source: {source}',
+      'lib.updateFallback': 'Primary source unreachable: {reason}',
       'notify.teamEnabled': 'Link dsh-team-control',
       'notify.teamHint': 'Subscribes to the team event stream in the background; silent backoff when the service is down.',
       'notify.teamUrl': 'team-control base URL',
@@ -2053,7 +2522,7 @@ window.__ModuleLoader__.load({
       'notify.testHint': 'To self-test, run /flow notify-test in the composer: it reports IM and email outcomes, including the SMTP transport actually used.',
       'threshold': 'Failure threshold',
       'idleSeconds': 'Desktop idle seconds',
-      'rescueModel': 'Rescue model',
+      'rescueModel': 'Diagnosis model',
       'teamUrl': 'team-control base URL',
       'botId': 'Bot id',
       'targetId': 'Target id',

@@ -65,19 +65,32 @@ export function normalizeSource(raw) {
 }
 
 /**
- * 源地址链：配置源优先，随后是内置镜像（去重）。
+ * 源地址链：配置源优先；仅在允许镜像回退时追加内置镜像。
  *
  * @param {string} [configured] 用户配置的源。
+ * @param {boolean} [allowMirror] 是否允许回退到镜像（默认允许）。
  * @returns {string[]}
  */
-export function buildSourceChain(configured) {
+export function buildSourceChain(configured, allowMirror = true) {
   const first = normalizeSource(configured)
+  if (allowMirror === false) return [first]
   const chain = [first]
   for (const mirror of MIRROR_SOURCES) {
     const normalized = normalizeSource(mirror)
     if (!chain.includes(normalized)) chain.push(normalized)
   }
   return chain
+}
+
+/** 把 fetch 异常归一成可读原因（超时 / 连接重置 / 解析失败 / HTTP 状态）。 */
+export function describeFetchError(error) {
+  const name = error?.name ?? ''
+  const message = error instanceof Error ? error.message : String(error)
+  if (name === 'AbortError' || name === 'TimeoutError') return '请求超时'
+  if (/ECONNRESET|socket hang up|reset/i.test(message)) return '连接被重置'
+  if (/ENOTFOUND|getaddrinfo/i.test(message)) return '域名解析失败'
+  if (/HTTP \d+/.test(message)) return message
+  return message
 }
 
 /** 带超时的 GET 文本。 */
@@ -167,12 +180,22 @@ export function validateManifest(value) {
  *   reason?: string,
  * }>}
  */
-export async function updatePrompts({ sourceUrl, root, signal, logger }) {
-  const chain = buildSourceChain(sourceUrl)
+export async function updatePrompts({ sourceUrl, root, signal, logger, allowMirrorFallback = true }) {
+  const chain = buildSourceChain(sourceUrl, allowMirrorFallback)
   const requested = chain[0]
-  const result = { ok: false, source: requested, requested, updated: [], skipped: [], failed: [] }
+  const result = {
+    ok: false,
+    source: requested,
+    requested,
+    fallback: false,
+    primaryError: '',
+    note: '',
+    updated: [],
+    skipped: [],
+    failed: [],
+  }
 
-  // 逐源尝试拉 manifest：网络环境差异很大，第一个不通就换镜像。
+  // 逐源尝试拉 manifest：主源失败且禁用回退时直接报错。
   let base
   let manifestText
   const attempts = []
@@ -186,16 +209,22 @@ export async function updatePrompts({ sourceUrl, root, signal, logger }) {
       base = candidate
       break
     } catch (error) {
-      attempts.push(`${candidate} → ${error instanceof Error ? error.message : String(error)}`)
+      attempts.push(`${candidate} → ${describeFetchError(error)}`)
     }
   }
   if (base === undefined || manifestText === undefined) {
-    result.reason = `所有源都拉取 manifest 失败：${attempts.join('；')}`
+    result.primaryError = attempts[0] ?? '未知错误'
+    result.reason = allowMirrorFallback === false
+      ? `主源不可达，且已禁用镜像回退：${result.primaryError}`
+      : `所有源均不可用：${attempts.join('；')}`
     return result
   }
   result.source = base
   if (base !== requested) {
-    logger?.info?.(`flow: 提示词主源不可达，已改用镜像 ${base}`)
+    result.fallback = true
+    result.primaryError = attempts[0] ?? '主源不可达'
+    result.note = '镜像（jsDelivr）对 @main 有 CDN 缓存延迟，刚推送的改动可能尚未同步。'
+    logger?.info?.(`flow: 主源不可达，已回退镜像 ${base}`)
   }
 
   let manifest
@@ -264,10 +293,11 @@ export function formatUpdateResult(result) {
     return `提示词更新失败：${result.reason ?? '原因未知'}（源：${result.source}）`
   }
   const lines = []
-  lines.push(result.ok === true ? '提示词已更新。' : '提示词部分更新，详情见下。')
+  lines.push(result.ok === true ? '提示词已更新。' : '提示词更新未完成。')
   lines.push(`- 源：${result.source}`)
-  if (typeof result.requested === 'string' && result.requested !== result.source) {
-    lines.push(`- 主源不可达，已自动改用镜像`)
+  if (result.fallback === true) {
+    lines.push(`- 主源不可达：${result.primaryError || '原因未知'}`)
+    if (typeof result.note === 'string' && result.note !== '') lines.push(`- 提示：${result.note}`)
   }
   if (result.version !== undefined) lines.push(`- 版本：${result.version}`)
   lines.push(`- 更新 ${result.updated.length} 个：${result.updated.length > 0 ? result.updated.join('、') : '（无）'}`)

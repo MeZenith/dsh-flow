@@ -1,6 +1,6 @@
 {
   "version": "0.4.0",
-  "updatedAt": "2026-11-25T13:02:14.960Z",
+  "updatedAt": "2026-11-25T13:51:32.189Z",
   "files": [
     {
       "path": "base.md",
@@ -28,7 +28,7 @@
     },
     {
       "path": "subagents/README.md",
-      "sha256": "cd81cc41b6dd10fd3ba0733ba22e71b5d4e9c32e9d81b8830258c3fa0c3db0f4"
+      "sha256": "246c0748ab5d66cc94deb7bc07fff3dd339cfb3cadd93e539a5b675600b915bb"
     },
     {
       "path": "subagents/deep-debugger.md",

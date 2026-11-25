@@ -1,33 +1,38 @@
 /**
- * 提示词仓库：三层回落 + mtime 热加载 + 花名册。
+ * 提示词仓库：三层回落 + mtime 热加载 + 子代理同名覆盖层（Copy-on-Write）。
  *
  * === 三层优先级（逐层回落） ===
  *
- * 1. **最高**：用户在设置页手动编辑保存的覆盖文本（存在配置里，**绝不回写磁盘**）。
- * 2. **中间**：插件 `prompts/` 目录下对应的 `.md`（改完文件不用重启，按 mtime 热加载）。
- * 3. **兜底**：代码内置极简文本（`config.js` 里的 `BASE_RULES` / `DEFAULT_MODE_PROMPTS`），
- *    防止用户误删整个 `prompts/` 目录把插件干崩。
+ * 1. **override**：设置页手动保存的覆盖文本（存在配置里，绝不回写磁盘）。
+ * 2. **file**：插件 `prompts/` 下对应的 `.md`（按 mtime 热加载，改完不用重启）。
+ * 3. **fallback**：代码内置兜底文本（`config.js` 的 `BASE_RULES` / `DEFAULT_MODE_PROMPTS`）。
+ *
+ * === 子代理防覆盖（Copy-on-Write） ===
+ *
+ * **永不修改 `prompts/subagents/` 下的官方文件**，否则一键更新会覆盖用户改动。
+ * 改名/新增一律写 `prompts/custom/subagents/<id>.md`；目录改写写
+ * `prompts/custom/subagents/README.md`。读取优先级：
+ * `custom/subagents/<name>.md` > `subagents/<name>.md`。
  *
  * === 渐进式披露 ===
  *
- * 只有 `flow` / `plan-ultra` 会拿到花名册（`subagents/README.md` + 私有特种兵清单 + 目录绝对路径）。
- * 特种兵正文**永不**预装进系统提示词：大队长需要谁，自己去读对应 `.md` 再装配进派单指令。
+ * 只有 `flow` / `plan-ultra` 拿到目录摘要，子代理正文永不预装进系统提示词。
  *
  * @module dsh-flow/prompt-store
  */
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { BASE_RULES, DEFAULT_MODE_PROMPTS } from './config.js'
 import { isPromptMode, modeConfigOf } from './modes.js'
 
-/** 插件内 `prompts/` 目录的绝对路径（跟随插件安装位置）。 */
+/** 插件内 `prompts/` 目录的绝对路径。 */
 export const PROMPT_ROOT = fileURLToPath(new URL('./prompts/', import.meta.url))
 
-/** 需要注入花名册的模式。 */
+/** 需要注入目录摘要的模式。 */
 export const ROSTER_MODES = Object.freeze(['flow', 'plan-ultra'])
 
-/** 官方特种兵名单（README 之外还要按文件存在性校验）。 */
+/** 官方子代理名单。 */
 export const OFFICIAL_SUBAGENTS = Object.freeze([
   'product-scout',
   'ui-architect',
@@ -37,15 +42,13 @@ export const OFFICIAL_SUBAGENTS = Object.freeze([
   'qa-tester',
 ])
 
-/** 来源标签，供 `/flow prompts list` 与设置页展示。 */
-const SOURCE_LABEL = Object.freeze({
-  override: '用户覆盖',
-  file: '本地 md',
-  builtin: '内置兜底',
-  missing: '缺失',
-})
+/** 子代理 ID 白名单：防路径穿越。 */
+export const SUBAGENT_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/
 
-/** 取 Markdown 首个非空行作为标题（去掉 # 前缀）。 */
+/** 单文件内容上限（字符）。 */
+const MAX_CONTENT_CHARS = 512 * 1024
+
+/** 取 Markdown 首个非空行作为标题。 */
 function firstHeading(text) {
   for (const line of String(text ?? '').split('\n')) {
     const trimmed = line.trim()
@@ -68,7 +71,11 @@ export function createPromptStore({ getConfig, logger, root = PROMPT_ROOT }) {
   /** 绝对路径 → { mtimeMs, size, text } */
   const cache = new Map()
 
-  /** 带 mtime 缓存的读取；文件不存在时返回 undefined。 */
+  const OFFICIAL_DIR = join(root, 'subagents')
+  const CUSTOM_DIR = join(root, 'custom', 'subagents')
+  const ROSTER_FILE = 'README.md'
+
+  /** 带 mtime 缓存的读取；不存在返回 undefined。 */
   function readCached(path) {
     try {
       const info = statSync(path)
@@ -86,25 +93,39 @@ export function createPromptStore({ getConfig, logger, root = PROMPT_ROOT }) {
     }
   }
 
-  /** 空串/非字符串一律当"没有覆盖"，让位给下一层。 */
+  /** 原子写：先写临时文件再 rename。 */
+  function writeAtomic(path, text) {
+    mkdirSync(dirname(path), { recursive: true })
+    const temp = `${path}.tmp`
+    writeFileSync(temp, text, 'utf8')
+    try {
+      renameSync(temp, path)
+    } catch (error) {
+      try { unlinkSync(temp) } catch { /* 可能已被清理 */ }
+      throw error
+    }
+    cache.delete(path)
+  }
+
+  /** 空串/非字符串视为"没有覆盖"，让位给下一层。 */
   function overrideOf(value) {
     return typeof value === 'string' && value.trim() !== '' ? value : undefined
   }
 
-  /** 统一的三层回落。 */
+  /** 统一三层回落。 */
   function resolve(kind, id, filePath, override, fallback) {
     const overridden = overrideOf(override)
     if (overridden !== undefined) {
-      return { text: overridden, source: 'override', label: SOURCE_LABEL.override, path: filePath, kind, id }
+      return { text: overridden, source: 'override', path: filePath, kind, id }
     }
     const fromFile = readCached(filePath)
     if (typeof fromFile === 'string' && fromFile.trim() !== '') {
-      return { text: fromFile, source: 'file', label: SOURCE_LABEL.file, path: filePath, kind, id }
+      return { text: fromFile, source: 'file', path: filePath, kind, id }
     }
     if (typeof fallback === 'string' && fallback.trim() !== '') {
-      return { text: fallback, source: 'builtin', label: SOURCE_LABEL.builtin, path: filePath, kind, id }
+      return { text: fallback, source: 'fallback', path: filePath, kind, id }
     }
-    return { text: '', source: 'missing', label: SOURCE_LABEL.missing, path: filePath, kind, id }
+    return { text: '', source: 'fallback', path: filePath, kind, id }
   }
 
   /** 底座工程契约。 */
@@ -116,7 +137,7 @@ export function createPromptStore({ getConfig, logger, root = PROMPT_ROOT }) {
   /** 某个模式的专属提示词。 */
   function mode(modeId) {
     if (!isPromptMode(modeId)) {
-      return { text: '', source: 'missing', label: SOURCE_LABEL.missing, path: '', kind: 'mode', id: modeId }
+      return { text: '', source: 'fallback', path: '', kind: 'mode', id: modeId }
     }
     const config = getConfig()
     return resolve(
@@ -128,136 +149,210 @@ export function createPromptStore({ getConfig, logger, root = PROMPT_ROOT }) {
     )
   }
 
-  /** 私有特种兵目录（用户扩展，一键更新永不触碰）。 */
-  const CUSTOM_DIR = join(root, 'custom', 'subagents')
-  const OFFICIAL_DIR = join(root, 'subagents')
-
-  /**
-   * 读取某个特种兵正文。
-   *
-   * 私有目录优先：同名时用户可以覆盖官方版，且不会被一键更新覆盖掉。
-   *
-   * @param {string} name 特种兵名（不含 `.md`）。
-   */
-  function subagent(name) {
-    const safe = String(name ?? '').trim().replace(/\.md$/i, '')
-    if (!/^[A-Za-z0-9._-]+$/.test(safe)) {
-      return { text: '', source: 'missing', label: SOURCE_LABEL.missing, path: '', kind: 'subagent', id: safe }
-    }
-    const customPath = join(CUSTOM_DIR, `${safe}.md`)
-    const officialPath = join(OFFICIAL_DIR, `${safe}.md`)
-    const fromCustom = readCached(customPath)
-    if (typeof fromCustom === 'string' && fromCustom.trim() !== '') {
-      return { text: fromCustom, source: 'file', label: '私有 md', path: customPath, kind: 'subagent', id: safe }
-    }
-    const fromOfficial = readCached(officialPath)
-    if (typeof fromOfficial === 'string' && fromOfficial.trim() !== '') {
-      return { text: fromOfficial, source: 'file', label: SOURCE_LABEL.file, path: officialPath, kind: 'subagent', id: safe }
-    }
-    return { text: '', source: 'missing', label: SOURCE_LABEL.missing, path: officialPath, kind: 'subagent', id: safe }
-  }
-
-  /** 扫描私有目录，列出用户自建特种兵。 */
-  function customSubagents() {
-    if (!existsSync(CUSTOM_DIR)) return []
+  /** 目录下所有 `.md`（排除 README），按名字排序。 */
+  function markdownIds(dir) {
+    if (!existsSync(dir)) return []
     try {
-      return readdirSync(CUSTOM_DIR)
-        .filter(file => file.toLowerCase().endsWith('.md'))
-        // 说明文件不算特种兵
-        .filter(file => file.toLowerCase() !== 'readme.md')
+      return readdirSync(dir)
+        .filter(file => file.toLowerCase().endsWith('.md') && file.toLowerCase() !== 'readme.md')
+        .map(file => file.replace(/\.md$/i, ''))
+        .filter(id => SUBAGENT_ID_PATTERN.test(id))
         .sort()
-        .map(file => {
-          const name = file.replace(/\.md$/i, '')
-          const text = readCached(join(CUSTOM_DIR, file))
-          return { name, title: firstHeading(text) }
-        })
-    } catch (error) {
-      logger?.warn?.(`flow: 扫描私有特种兵失败 → ${error instanceof Error ? error.message : String(error)}`)
+    } catch {
       return []
     }
   }
 
-  /** 官方特种兵清单（按目录实际内容排序，缺失的也列出来便于自检）。 */
-  function officialSubagents() {
-    return OFFICIAL_SUBAGENTS.map(name => {
-      const path = join(OFFICIAL_DIR, `${name}.md`)
-      const text = readCached(path)
+  /**
+   * 合并后的子代理清单（官方 + 自定义，去重）。
+   *
+   * @returns {Array<{ id: string, title: string, kind: 'official'|'custom', overridden: boolean, content: string, resolvedPath: string }>}
+   */
+  function listSubagents() {
+    const official = new Set(OFFICIAL_SUBAGENTS.filter(id => readCached(join(OFFICIAL_DIR, `${id}.md`)) !== undefined))
+    for (const id of markdownIds(OFFICIAL_DIR)) official.add(id)
+    const custom = new Set(markdownIds(CUSTOM_DIR))
+    const ids = [...new Set([...official, ...custom])].sort()
+
+    return ids.map(id => {
+      const customPath = join(CUSTOM_DIR, `${id}.md`)
+      const officialPath = join(OFFICIAL_DIR, `${id}.md`)
+      const customText = readCached(customPath)
+      const officialText = readCached(officialPath)
+      const isOfficial = officialText !== undefined
+      const isCustom = customText !== undefined
+      const content = isCustom ? customText : (officialText ?? '')
       return {
-        name,
-        title: typeof text === 'string' ? firstHeading(text) : '',
-        exists: typeof text === 'string' && text.trim() !== '',
+        id,
+        title: firstHeading(content),
+        kind: isOfficial ? 'official' : 'custom',
+        overridden: isOfficial && isCustom,
+        content: content ?? '',
+        resolvedPath: isCustom ? customPath : officialPath,
       }
     })
   }
 
+  /** 读取单个子代理（custom 优先）。 */
+  function subagent(name) {
+    const id = String(name ?? '').trim().replace(/\.md$/i, '')
+    if (!SUBAGENT_ID_PATTERN.test(id)) {
+      return { text: '', source: 'fallback', path: '', kind: 'subagent', id }
+    }
+    const customPath = join(CUSTOM_DIR, `${id}.md`)
+    const officialPath = join(OFFICIAL_DIR, `${id}.md`)
+    const fromCustom = readCached(customPath)
+    if (typeof fromCustom === 'string') {
+      return { text: fromCustom, source: 'file', path: customPath, kind: 'subagent', id }
+    }
+    const fromOfficial = readCached(officialPath)
+    if (typeof fromOfficial === 'string') {
+      return { text: fromOfficial, source: 'file', path: officialPath, kind: 'subagent', id }
+    }
+    return { text: '', source: 'fallback', path: officialPath, kind: 'subagent', id }
+  }
+
+  /** 目录（README）状态：自定义优先。 */
+  function rosterInfo() {
+    const customPath = join(CUSTOM_DIR, ROSTER_FILE)
+    const officialPath = join(OFFICIAL_DIR, ROSTER_FILE)
+    const customText = readCached(customPath)
+    if (typeof customText === 'string' && customText.trim() !== '') {
+      return { content: customText, source: 'custom', hasCustom: true, path: customPath }
+    }
+    return {
+      content: readCached(officialPath) ?? '',
+      source: 'official',
+      hasCustom: false,
+      path: officialPath,
+    }
+  }
+
+  /** 用户自建（非官方）子代理清单。 */
+  function customSubagents() {
+    const officialSet = new Set(OFFICIAL_SUBAGENTS)
+    return markdownIds(CUSTOM_DIR)
+      .filter(id => !officialSet.has(id))
+      .map(id => ({ name: id, title: firstHeading(readCached(join(CUSTOM_DIR, `${id}.md`))) }))
+  }
+
   /**
-   * 花名册注入文本：README + 私有清单 + 目录绝对路径。
+   * 注入给 flow / plan-ultra 的目录摘要。
    *
-   * 只给"谁在哪、擅长什么"，**不含正文**，保证提示词体积恒定。
-   *
-   * @returns {string} 空串表示不注入（目录缺失或 README 不可读）。
+   * 只给"谁在哪、擅长什么、看哪个文件"，不含正文；每条附带**实际生效的最终路径**。
    */
   function roster() {
-    const readme = readCached(join(OFFICIAL_DIR, 'README.md'))
-    const custom = customSubagents()
+    const info = rosterInfo()
+    const entries = listSubagents()
     const lines = []
-    if (typeof readme === 'string' && readme.trim() !== '') {
-      lines.push(readme.trim())
+
+    if (info.content.trim() !== '') {
+      lines.push(info.content.trim())
     } else {
-      lines.push('## 特种兵花名册（README 缺失）')
+      lines.push('## 子代理清单')
       lines.push('')
       lines.push('官方名单：' + OFFICIAL_SUBAGENTS.join('、'))
     }
-    if (custom.length > 0) {
+
+    if (entries.length > 0) {
       lines.push('')
-      lines.push('### 私有特种兵（用户扩展）')
-      for (const item of custom) lines.push(`- \`${item.name}\`：${item.title || '（无标题）'}`)
+      lines.push('### 子代理与生效路径')
+      for (const item of entries) {
+        const marks = []
+        if (item.kind === 'custom') marks.push('自定义')
+        else if (item.overridden) marks.push('官方·已自定义')
+        const suffix = marks.length > 0 ? `（${marks.join('，')}）` : ''
+        lines.push(`- \`${item.id}\`${suffix}：${item.title || '（无标题）'} → ${item.resolvedPath}`)
+      }
     }
+
     lines.push('')
-    lines.push(`官方目录：\`${OFFICIAL_DIR}\``)
-    lines.push(`私有目录：\`${CUSTOM_DIR}\``)
+    lines.push('官方目录：`' + OFFICIAL_DIR + '`')
+    lines.push('覆盖目录：`' + CUSTOM_DIR + '`')
     lines.push('')
-    lines.push('需要哪位就读取对应 `.md` 正文，装配进派单指令；严禁凭花名册标题臆测其专业结论。')
+    lines.push('需要哪位就读取其生效路径的正文，再装配进派单指令。')
     return lines.join('\n')
   }
 
-  /** 清空 mtime 缓存（一键更新后调用，立即生效）。 */
+  /** 校验写入内容。 */
+  function validContent(content) {
+    if (typeof content !== 'string') return '内容必须是字符串'
+    if (content.length > MAX_CONTENT_CHARS) return `内容超过 ${MAX_CONTENT_CHARS} 字符上限`
+    return undefined
+  }
+
+  /** 写入子代理覆盖层（从不触碰官方文件）。 */
+  function writeSubagent(id, content) {
+    if (!SUBAGENT_ID_PATTERN.test(String(id ?? ''))) return { ok: false, reason: 'ID 不合法' }
+    const problem = validContent(content)
+    if (problem !== undefined) return { ok: false, reason: problem }
+    try {
+      writeAtomic(join(CUSTOM_DIR, `${id}.md`), content)
+      return { ok: true, path: join(CUSTOM_DIR, `${id}.md`) }
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  /** 删除子代理覆盖层（官方项即"恢复默认"）。 */
+  function deleteSubagent(id) {
+    if (!SUBAGENT_ID_PATTERN.test(String(id ?? ''))) return { ok: false, reason: 'ID 不合法' }
+    const path = join(CUSTOM_DIR, `${id}.md`)
+    try {
+      if (existsSync(path)) unlinkSync(path)
+      cache.delete(path)
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  /** 写入自定义目录文件。 */
+  function writeRoster(content) {
+    const problem = validContent(content)
+    if (problem !== undefined) return { ok: false, reason: problem }
+    try {
+      writeAtomic(join(CUSTOM_DIR, ROSTER_FILE), content)
+      return { ok: true, path: join(CUSTOM_DIR, ROSTER_FILE) }
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  /** 删除自定义目录文件（目录恢复默认）。 */
+  function deleteRoster() {
+    const path = join(CUSTOM_DIR, ROSTER_FILE)
+    try {
+      if (existsSync(path)) unlinkSync(path)
+      cache.delete(path)
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  /** 清空 mtime 缓存（一键更新后调用）。 */
   function invalidate() {
     cache.clear()
   }
 
-  /** 当前清单（版本、来源、特种兵），供命令与设置页展示。 */
-  function info() {
-    const manifest = (() => {
-      const raw = readCached(join(root, 'manifest.json'))
-      if (typeof raw !== 'string') return undefined
-      try {
-        return JSON.parse(raw)
-      } catch {
-        return undefined
+  /** manifest 摘要。 */
+  function manifestInfo() {
+    const raw = readCached(join(root, 'manifest.json'))
+    if (typeof raw !== 'string') return { version: '', updatedAt: '', fileCount: 0 }
+    try {
+      const parsed = JSON.parse(raw)
+      return {
+        version: typeof parsed?.version === 'string' ? parsed.version : '',
+        updatedAt: typeof parsed?.updatedAt === 'string' ? parsed.updatedAt : '',
+        fileCount: Array.isArray(parsed?.files) ? parsed.files.length : 0,
       }
-    })()
-    const modes = ['plan', 'plan-ultra', 'build', 'review', 'flow'].map(id => {
-      const hit = mode(id)
-      return { id, source: hit.source, label: hit.label, path: hit.path, exists: existsSync(hit.path) }
-    })
-    const baseHit = base()
-    return {
-      root,
-      exists: existsSync(root),
-      version: typeof manifest?.version === 'string' ? manifest.version : '未安装',
-      updatedAt: typeof manifest?.updatedAt === 'string' ? manifest.updatedAt : '',
-      fileCount: Array.isArray(manifest?.files) ? manifest.files.length : 0,
-      base: { source: baseHit.source, label: baseHit.label, path: baseHit.path, exists: existsSync(baseHit.path) },
-      modes,
-      official: officialSubagents(),
-      custom: customSubagents(),
-      customDir: CUSTOM_DIR,
-      officialDir: OFFICIAL_DIR,
+    } catch {
+      return { version: '', updatedAt: '', fileCount: 0 }
     }
   }
 
-  /** 供 `buildModeText` 使用的轻量读取器：只回正文。 */
+  /** 供 `buildModeText` 使用的轻量读取器。 */
   function textOf(kind, id) {
     if (kind === 'base') return base().text
     if (kind === 'mode') return mode(id).text
@@ -266,5 +361,23 @@ export function createPromptStore({ getConfig, logger, root = PROMPT_ROOT }) {
     return ''
   }
 
-  return { root, base, mode, subagent, roster, invalidate, info, textOf, customSubagents, officialSubagents }
+  return {
+    root,
+    officialDir: OFFICIAL_DIR,
+    customDir: CUSTOM_DIR,
+    base,
+    mode,
+    subagent,
+    roster,
+    rosterInfo,
+    listSubagents,
+    customSubagents,
+    writeSubagent,
+    deleteSubagent,
+    writeRoster,
+    deleteRoster,
+    invalidate,
+    manifestInfo,
+    textOf,
+  }
 }
