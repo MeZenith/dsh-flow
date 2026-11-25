@@ -5,14 +5,16 @@
 <h1 align="center">dsh-flow</h1>
 
 <p align="center">
-  DeepSeek Harness 的多模式工作流插件：把 Plan、Build、Review 收进一套可审计、可托管的流程。
+  <b>专为 DeepSeek Harness 打造的工程化工作流管家与渐进式提示词编排器</b><br/>
+  五段式可控研发 · 外置 Markdown 技能库 · 一次确认全托管 · 连续报错熔断与手机微信远程接管
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v0.4.0-blue" alt="Version v0.4.0" />
-  <img src="https://img.shields.io/badge/License-PolyForm--NC--1.0.0-orange" alt="License: PolyForm-NC-1.0.0" />
-  <img src="https://img.shields.io/badge/Zero--Build-ESM-success" alt="Zero-Build ESM" />
-  <img src="https://img.shields.io/badge/i18n-中文%20%2F%20EN-informational" alt="i18n: 中文 / EN" />
+  <img src="https://img.shields.io/badge/Version-v0.4.0-2563EB?style=flat-square" alt="Version v0.4.0" />
+  <img src="https://img.shields.io/badge/License-PolyForm--NC--1.0.0-EA580C?style=flat-square" alt="License: PolyForm-NC-1.0.0" />
+  <img src="https://img.shields.io/badge/Zero--Build-ESM-16A34A?style=flat-square" alt="Zero-Build ESM" />
+  <img src="https://img.shields.io/badge/Node-%3E%3D22-339933?style=flat-square" alt="Node >= 22" />
+  <img src="https://img.shields.io/badge/i18n-中文%20%2F%20EN-0284C7?style=flat-square" alt="i18n: 中文 / EN" />
 </p>
 
 <p align="center">
@@ -21,135 +23,251 @@
 
 ---
 
-## 设计理念
+### 为什么需要 dsh-flow？
 
-1. **需求先于实现**：先对齐需求边界、现成生态与界面交互，再进入编码，避免盲目开工与返工。
-2. **复用优先于自建**：优先复用项目已有组件、宿主能力与成熟开源方案，避免重复造简陋轮子。
-3. **渐进式披露**：主模式与子代理提示词解耦为外部 Markdown，按需注入目录，兼顾低 Token 占用与前缀缓存命中；自定义覆盖与官方更新通过 Copy-on-Write 隔离。
-4. **一次确认、全托管闭环**：`Flow` 模式在方案确认后自动完成拆解、施工、验证与独立复审，把人工介入收敛到真正需要决策的节点。
-5. **故障隔离与跨端接管**：连续报错自动熔断止损，配合 IM `1/2/3` 与单次 Handoff 实现离开电脑后的远程掌控。
+直接用大模型做长链路开发时，最消耗精力的往往不是写不出代码，而是模型在失控状态下制造的返工：
 
-## 核心特性
+* **抢跑盲写**：你只是想先理清思路、确认方案，AI 已经擅自选好技术栈改了十几个文件；
+* **重复造破轮子**：项目里明明有现成组件、开源库或宿主能力，它却视而不见，从零手搓一个漏洞百出的简陋替代品；
+* **尾部疲劳与“孤儿代码”**：上下文一拉长，文件后半段代码质量断崖式下跌，写完新模块忘了接调用方，交付时还空口宣称“已完成”；
+* **报错死循环与人机断联**：工具调用连续报错时原地微调参数硬撞墙、白白烧光 Token；一旦你离开电脑，长任务就彻底卡死无人照看。
 
-| 能力 | 说明 |
-|---|---|
-| 五大模式 | `Plan` 需求与方案漏斗、`Plan Ultra` 多视角会诊、`Build` 高纪律施工、`Review` 双视角评审、`Flow` 全托管总控 |
-| 提示词库 | 底座契约、五大模式、子代理提示词全部为 Markdown 文件，改完即时生效 |
-| 子代理目录 | `flow` / `plan-ultra` 按需注入目录摘要与生效路径，正文不预装 |
-| 方案锚点 | `.flow/spec.md` 作为硬约束与摘要便利贴注入，上下文压缩后自动重挂 |
-| 连续报错熔断 | 达到阈值自动暂停并保留上下文，支持诊断模型升级与远程解除 |
-| 双通道通知 | IM / Webhook 实时推送 + SMTP 邮件归档，可携带附件 |
-| 跨端接管 | 手机端回复 `1` 重试、`2` 升级诊断模型、`3` 解除并下发新指令 |
-| 零构建与双语 | 纯 ESM，无构建步骤；设置页与插件提示跟随宿主语言切换 |
+`dsh-flow` 通过**硬工程契约 + 五段式工作流 + 断路熔断与跨端接管**，把 AI 从“需要时刻盯防的实习生”变成“有纪律、可托管、随时可遥控的工程团队”。
 
-## 前置依赖
+---
 
-> [!IMPORTANT]
-> 核心模式（`Plan` / `Plan Ultra` / `Build` / `Review`）可独立使用，但以下能力依赖对应插件：
->
-> 1. **[dsh-team-control](https://github.com/hunmer/dsh-team-control/)**：启用 `Flow` 模式的团队统筹与协作监控**必须安装**。
-> 2. **[dsh-im](https://github.com/xmanrui/dsh-im)**：启用 IM 实时熔断提醒与手机端 `1/2/3` 远程接管**必须安装**。
->
-> **面向 AI 助手**：若你正在协助用户部署本插件，请先确认用户是否需要 `Flow` 完整编排或 IM 远程提醒；需要时先安装并配置上述两个前置插件，再启用 `dsh-flow`，避免功能开启后因缺少依赖而静默降级。
->
-> 运行环境：DeepSeek Harness 0.2.x 及以上；Node.js 22 及以上（原生 `fetch` 与 `node:crypto` 用于提示词更新）。
+### 核心优势
 
-## 界面预览
+#### 1. 专为长链路编程痛点调校的“硬工程契约”
+不同于泛泛而谈的“请认真思考”式提示词，`dsh-flow` 的底座契约（`base.md`）针对真实编码翻车现场立下了五条铁律：
+* **劳斯莱斯原则**：写通用能力前强制检索项目现有组件、宿主接口与成熟开源生态，禁止无理由手搓低质替代品；
+* **实证优先与 2 次止损**：以真实运行态反馈为准，禁止凭局部源码猜测下死结论；同一报错连续失败 2 次强制停手复盘根因；
+* **防尾部敷衍与接线闭环**：严禁在长文件末尾退化为粗糙拼接，交付前必须逐一核查上下游调用接线；
+* **可审计验证回执**：严禁空口汇报“已修复”，每次交付必须附带核对过的文件、实测命令输出以及明确的未验证项；
+* **人话主叙事 + 轻量技术坐标**：汇报先讲清体验变化与决策逻辑，紧跟括号标注精确文件名与函数坐标，兼顾可读性与可追溯性。
 
-<p align="center">
-  <img src="./docs/assets/mode-switcher.png" width="820" alt="模式切换芯片" />
-</p>
+#### 2. 真正的“一次确认、全托管闭环”（无需盯屏点鼠标）
+多数工作流工具在每个阶段切换时都会弹窗打断你，本质上只是把人变成了“点确认按钮的工具人”。
+* 在 **`Flow` 全托管模式**下，总控大队长只在**方案定稿（`.flow/spec.md`）**时请求**唯一一次**人工确认；
+* 一旦你点头，大队长**全程保持在线统筹**，自动拆分互不重叠文件边界的子任务、按需调遣子代理施工、运行自测命令，并拉起独立 Review 视角挑刺；
+* 若评审发现 `Blocker` 或 `Major` 级硬伤，系统**不打扰你**，直接在内部打回返工并复验（默认最多自动返工 3 轮），直到验收全绿后才向你推送完工报告。
 
-<p align="center"><sub>模式切换：输入框上方的模式芯片，切换后立即生效</sub></p>
+#### 3. 外置 Markdown 技能库 + 渐进式披露（低 Token、无限扩展）
+所有提示词均解耦为独立 Markdown 文件，支持**修改即热加载**，彻底告别改一行提示词就要改源码、重发版本的繁琐：
+* **上下文零冗余**：运行 `Flow` 或 `Plan Ultra` 时，系统仅向主控注入精简的子代理目录索引（保住极高前缀缓存命中率），只有真正派单时才按需读取对应专家的完整提示词；
+* **零代码扩充“特种兵”**：只需往 `prompts/custom/subagents/` 丢入一个 `.md` 文件（或在设置页可视化新建），大队长立刻就能识别并调度你的专属领域专家（如游戏 Mod 开发、逆向分析、协议逆向等）；
+* **Copy-on-Write 安全隔离**：在设置页修改官方子代理或目录时自动写入 `custom/` 覆盖层，一键从 GitHub 增量更新官方提示词时**绝不覆盖**你的任何私有定制，且内置时间戳防回退保护。
 
-<p align="center">
-  <img src="./docs/assets/settings-tabs.png" width="820" alt="设置页四个 Tab" />
-</p>
+#### 4. 长对话压缩“失忆免疫”（`.flow/spec.md` 方案锚点）
+长任务触发上下文压缩后，普通会话极易遗忘早期敲定的接口约束与避坑约定。`dsh-flow` 将 `.flow/spec.md` 中的核心摘要标记为高优先级项目权威锚点，每次上下文压缩后**自动重新挂载**，确保模型从第一行代码到最后一轮测试始终不偏航。
 
-<p align="center"><sub>设置页：五大模式 / 提示词库 / 工作流与熔断 / 通知与联动</sub></p>
+#### 5. 连续报错熔断 + 手机微信 `1 / 2 / 3` 远程接管
+* 当工具调用连续失败达到阈值，熔断器立即冻结当前会话、保住现场，并通过 IM（微信/飞书等）或 SMTP 邮件向你推送诊断摘要；
+* **人不在电脑前也能直接遥控**：直接在手机微信回复 `1`（清零重试）、`2`（切换预设的高阶诊断模型排障），或回复 `3`（解除熔断并开启 5 分钟单次远程接管 Handoff，下一条微信消息直接转发给桌面开发会话执行）。
 
-<p align="center">
-  <img src="./docs/assets/im-handoff.jpg" width="340" alt="IM 远程接管预览" />
-</p>
+#### 6. 零构建、零外部依赖的极致轻量化
+纯 ESM 架构，直接基于 Node.js 22 原生 `fetch`、`node:fs`、`node:crypto` 与 `node:net`（内置原生 SMTP 客户端）实现，无需编译打包、无需安装 `git` 命令行即可在线增量更新提示词，装完即用。
 
-<p align="center"><sub>IM 远程接管：熔断后用手机回复 <code>1</code> / <code>2</code> / <code>3</code> 继续推进</sub></p>
+---
 
-## 快速开始
+### 痛点直击：普通 AI 开发 vs. dsh-flow
 
-### 安装
+| 真实开发场景 | 直接裸用 AI 助手 | 使用 dsh-flow 工作流 |
+| :--- | :--- | :--- |
+| **刚冒出一个模糊想法** | 还没问清你要几个页面、有哪些边界，已经开始新建文件写代码 | **`Plan` 五步漏斗**先当产品搭档对齐需求与边界，再调研现成轮子、设计技术与 UI 蓝图，确认前零代码改动 |
+| **复杂架构拿不准路线** | 单一视角自己跟自己“左右脑互博”，方案漏洞百出 | **`Plan Ultra`** 并行调度产品体验、轮子侦察、架构排雷等多视角子代理交叉会诊，输出清晰取舍简报 |
+| **写完代码准备交卷** | 经常漏接调用方、写到末尾敷衍了事，还说“已全部完成” | **`Build`** 强制核查上下游接线与风格一致性，必须跑实测并附带可审计验证回执 |
+| **自己查自己写的 Bug** | 往往自己给自己盖橡皮图章，并发竞态与边界漏洞全放过 | **`Review`** 切换为“挑剔的首次使用者 + 冷酷 QA”双视角，按严重级别输出带 `文件:行号` 的硬核审查单 |
+| **人离开电脑去吃饭/睡觉** | 遇到一个报错就原地死循环空转，或者卡在某个确认框干等一晚上 | **`Flow` 全托管 + 熔断 IM 接管**，自动内部返工闭环；遇到真卡点直接微信摇你，手机回 `1/2/3` 远程指挥 |
 
-```bash
-# 从 npm 安装到指定 profile（示例为 web）
-dsh plugin --profile web add dsh-flow
+---
 
-# 或从 Git 仓库安装
-dsh plugin --profile web add github:MeZenith/dsh-flow
+### 全链路运转全景
+
+```mermaid
+flowchart LR
+    U([输入原始想法]) --> P["Plan / Plan Ultra 五步漏斗<br/>1.需求边界 → 2.轮子调研 → 3.技术方案 → 4.UI设计 → 5.开发蓝图"]
+    P --> G{"唯一人工确认<br/>.flow/spec.md 定稿"}
+    G -->|确认启动| F["Flow 全托管总控<br/>(大队长始终在线)"]
+    subgraph AutoLoop ["无人值守自动化闭环"]
+        F -->|按需读取子代理 .md 派单| B["Build 施工与实测<br/>(强制验证回执)"]
+        B --> R["Review 双视角独立验收<br/>(用户体感 + 冷酷 QA)"]
+        R -->|"发现 Blocker/Major · 内部返工 ≤3 轮"| B
+    end
+    R -->|验收全绿| D(["SMTP 归档邮件 & IM 完工通知"])
+    B -.->|连续报错达阈值| CB["熔断器冻结保护"]
+    CB -.->|推送诊断摘要| IM["手机微信远程遥控"]
+    IM -.->|"回复 1 重试 / 2 换诊断模型 / 3 接管下发新指令"| B
 ```
 
-安装后在设置页启用 `dsh-flow`，重启 Web 界面并按 `Ctrl + Shift + R` 刷新。
+---
 
-### 设置页四个 Tab
+### 五大工作模式与内置子代理矩阵
 
-| Tab | 内容 |
-|---|---|
-| 五大模式 | 模式胶囊切换、提示词预览与编辑、模型与权限档位 |
-| 提示词库 | 版本与清单、检查更新、更新源设置、底座契约 / 全局提示词 / 子代理与目录 |
-| 工作流与熔断 | 执行模式、方案锚点、阶段确认后自动压缩、连续报错熔断、诊断模型、诊断日志 |
-| 通知与联动 | IM 与 Webhook、SMTP 邮箱归档、触发门控与分流策略 |
+#### 五大工作模式
 
-### 常用命令
+| 模式 | 权限与定位 | 核心工作机制 |
+| :--- | :--- | :--- |
+| **`Plan`** | 只读 · 产品与架构搭档 | 严格执行**五步漏斗**（需求边界对齐 → 同类产品与开源轮子调研 → 技术方案与联动清单 → UI/交互风格设计 → 输出开发文档），未获确认绝不改业务代码。 |
+| **`Plan Ultra`** | 只读 · 多专家并行会诊 | 继承 `Plan` 五步漏斗，并行调遣多视角子代理分头调研与排雷，交叉质询消除盲区，输出备选路线对比简报。 |
+| **`Build`** | 可写 · 高纪律施工队 | 严格按 `.flow/spec.md` 与对齐的 UI 规范施工；强制复用现有组件、杜绝尾部敷衍与孤儿模块，交付必附验证回执。 |
+| **`Review`** | 只读 · 双视角对抗验收 | 兼顾“挑剔真实用户体感”与“冷酷 QA 代码审计”，专抓漏接线、异步重入、状态串台与隐私日志，按 `Blocker / Major / Minor` 分级裁决。 |
+| **`Flow`** | 全权 · 全托管总控大队长 | **一次确认、全程托管**：定稿确认后不再切走模式自杀，自动拆包派单、组织内部打回返工闭环，直到验收全绿并触发归档通知。 |
 
-| 命令 | 作用 |
-|---|---|
-| `/flow plan` | 切到 Plan 模式（同理 `plan-ultra` / `build` / `review` / `flow` / `off`） |
-| `/flow` | 查看当前模式 |
-| `/flow spec` | 查看方案锚点状态与摘要 |
-| `/flow compact` | 手动压缩一次上下文 |
-| `/flow prompts list` | 查看提示词版本、来源与子代理清单 |
-| `/flow prompts update` | 从远端更新提示词库 |
-| `/flow notify-test` | 自检 IM 与邮箱通路 |
-| `/flow retry` / `/flow escalate` / `/flow resume` | 熔断后重试 / 升级诊断模型 / 解除暂停 |
+#### 内置六大专精子代理（`prompts/subagents/`）
 
-## 提示词架构与自定义扩展
+在 `Flow` 与 `Plan Ultra` 模式下，主控可根据任务需要按需读取并派遣以下专家（亦可在 `prompts/custom/subagents/` 自由扩充）：
+
+* **`product-scout`（产品与开源轮子侦察兵）**：调研同类成熟产品交互范式，盘点可直接复用的现成组件与开源库，从源头杜绝重复造轮子；
+* **`ui-architect`（UI 布局与交互设计师）**：规划页面分区、信息层级、控件复用与暗色/响应式适配，消灭“工科裸标签堆砌风”；
+* **`reverse-engineer`（逆向与底层分析专家）**：负责协议分析、混淆代码梳理、二进制/打包产物结构逆向与调用链还原；
+* **`deep-debugger`（疑难排障与日志取证专家）**：针对连续报错与偶发疑难杂症执行假设驱动排障，收集运行态证据定位根因；
+* **`security-auditor`（安全与并发审计专家）**：专项审查路径穿越、权限越界、敏感信息泄露、异步竞态与资源泄漏；
+* **`qa-tester`（独立对抗式测试专家）**：编写边界测试用例、执行回归验证并输出不可抵赖的验收报告。
+
+---
+
+### 界面与实机预览
+
+#### 1. 五模式快捷切换与四 Tab 可视化工作台
+
+<table width="100%">
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <img src="./docs/assets/mode-switcher.png" width="100%" alt="模式切换芯片" /><br/>
+      <sub><b>输入框模式切换芯片</b>：一键切换 Plan / Plan Ultra / Build / Review / Flow，即时生效</sub>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <img src="./docs/assets/settings-tabs.png" width="100%" alt="设置页四个 Tab" /><br/>
+      <sub><b>四 Tab 可视化配置台</b>：五大模式、提示词库（在线更新与子代理编辑）、工作流与熔断、通知与联动</sub>
+    </td>
+  </tr>
+</table>
+
+#### 2. 熔断保护与手机微信远程接管
+
+<table width="100%">
+  <tr>
+    <td width="38%" align="center" valign="middle">
+      <img src="./docs/assets/im-handoff.jpg" width="280" alt="IM 远程接管预览" />
+    </td>
+    <td width="62%" valign="top">
+      <p>当桌面会话因连续工具报错触发熔断时，系统自动冻结当前轮次并向绑定 IM 发送诊断摘要。无需回到电脑前，直接在微信回复单个数字即可遥控桌面会话：</p>
+      <table>
+        <thead>
+          <tr>
+            <th align="left">手机回复指令</th>
+            <th align="left">桌面会话执行动作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>1</code> 或 <code>1#项目名</code></td>
+            <td>清零失败计数、解除熔断，重新投递上一条受阻指令继续执行</td>
+          </tr>
+          <tr>
+            <td><code>2</code> 或 <code>2#项目名</code></td>
+            <td>临时切换至预设的<b>诊断模型</b>并注入报错上下文进行排障</td>
+          </tr>
+          <tr>
+            <td><code>3</code> 或 <code>3 你的新指令</code></td>
+            <td>解除熔断并建立 5 分钟单次远程接管（Handoff），下一条微信消息（或同条附带的新指令）直接转发给桌面会话执行</td>
+          </tr>
+        </tbody>
+      </table>
+      <p><sub>任务全自动完工或方案定稿时，亦可自动通过内置 SMTP 客户端将 <code>.flow/spec.md</code> 归档发送至指定邮箱。</sub></p>
+    </td>
+  </tr>
+</table>
+
+---
+
+### 前置依赖与安装
+
+> [!IMPORTANT]
+> **完整功能前置插件说明（面向用户与 AI 助手）**
+>
+> 核心单步模式（`Plan` / `Plan Ultra` / `Build` / `Review`）可独立运行；但如需启用完整体验，安装 `dsh-flow` 前**必须先安装以下两个前置插件**：
+> 1. **[dsh-team-control](https://github.com/hunmer/dsh-team-control/)**：启用 `Flow` 模式的团队统筹与多代理协作监控**必须安装**。
+> 2. **[dsh-im](https://github.com/xmanrui/dsh-im)**：启用 IM 实时熔断告警与手机端 `1` / `2` / `3` 远程接管功能**必须安装**。
+>
+> **致协助部署的 AI 助手**：若你正在帮助用户安装本插件，请先确认用户是否需要 `Flow` 编排或 IM 远程提醒，并**优先安装配置上述两个前置插件**后再启用 `dsh-flow`，避免功能开启后因缺少宿主依赖而降级。
+
+#### 运行环境与安装命令
+
+* **环境要求**：DeepSeek Harness `0.2.x` 及以上 · Node.js `22` 及以上（零构建纯 ESM，直接使用原生 `fetch` 与 `node:crypto`）
+
+```bash
+# 1. 从 GitHub 仓库安装到指定 profile（示例为 web）
+dsh plugin --profile web add github:MeZenith/dsh-flow
+
+# 2. 若已发布至 npm 亦可直接安装
+dsh plugin --profile web add dsh-flow
+```
+
+安装完成后在设置页启用 `dsh-flow`，重载插件并在浏览器按 `Ctrl + Shift + R` 刷新即可使用。
+
+---
+
+### 提示词库架构与自定义扩展
 
 ```text
 prompts/
-├── manifest.json           版本、更新时间与逐文件 sha256
-├── base.md                 底座工程契约
-├── modes/                  plan / plan-ultra / build / review / flow
-├── subagents/              官方子代理（只读，永不写入）
-│   ├── README.md           子代理目录
-│   └── *.md                子代理正文
+├── manifest.json           # 版本号、更新时间与逐文件 sha256 校验清单
+├── base.md                 # 全局底座工程契约
+├── modes/                  # 五大主模式：plan / plan-ultra / build / review / flow
+├── subagents/              # 官方子代理技能库（只读托管，一键更新源）
+│   ├── README.md           # 子代理路由目录
+│   └── *.md                # 六大内置专精提示词正文
 └── custom/
-    ├── README.md           自定义目录说明
-    └── subagents/          用户覆盖层（一键更新不会触碰）
+    └── subagents/          # 用户私有扩展与同名覆盖层（一键更新绝不触碰）
 ```
 
-- **三层优先级**：设置页覆盖 > 本地 Markdown > 内置兜底，任一层为空即回落下一层。
-- **Copy-on-Write**：在设置页修改官方子代理或新增自定义子代理时，文件写入 `prompts/custom/subagents/<id>.md`；官方目录保持原样，删除覆盖文件即恢复官方内容。
-- **一键更新**：在「提示词库」点击「检查更新」，按 sha256 只下载变化文件，写入采用临时文件 + 重命名；远端版本更旧时整批跳过，避免镜像缓存滞后造成回退。
-- **可视化编辑**：底座契约、子代理目录、子代理正文都可在设置页直接编辑、保存与恢复默认；接口不可用时改用 `/flow prompts update`。
+* **三层优先级与即时热加载**：`设置页自定义覆盖` > `本地 Markdown 文件` > `内置安全兜底`；直接修改磁盘 `.md` 文件无需重启即刻生效。
+* **Copy-on-Write 防覆盖隔离**：在设置页「提示词库 → 子代理与目录」中修改官方子代理或新增私有子代理时，自动写入 `prompts/custom/subagents/<id>.md`；一键更新仅增量同步官方目录，删除覆盖文件即可秒级恢复官方版本。
+* **增量更新与防回退保护**：点击设置页「检查更新」（或执行 `/flow prompts update`）时按 `sha256` 仅拉取变更文件；若远端镜像缓存版本早于本地则整批跳过，防止倒退覆盖。
 
-完整机制（熔断状态机、IM 指令、COW 细节、本地回环接口）见 [docs/DETAIL.md](./docs/DETAIL.md)。
+<details>
+<summary><b>展开查看全部斜杠命令速查表</b></summary>
 
-## 鸣谢
+<br/>
 
-- **[OpenCode](https://github.com/anomalyco/opencode)**：本项目的 `Plan` / `Build` 划分与多模式切换工作流设计，深受 OpenCode 架构思路启发。
-- **[dsh-team-control](https://github.com/hunmer/dsh-team-control/)**（[@hunmer](https://github.com/hunmer)）：为 DeepSeek Harness 生态提供团队编排与协作监控底座。
-- **[dsh-im](https://github.com/xmanrui/dsh-im)**（[@xmanrui](https://github.com/xmanrui)）：为 DeepSeek Harness 生态提供 IM 推送与双向消息底座。
+| 命令 | 说明 |
+| :--- | :--- |
+| `/flow plan` | 切换至 `Plan` 模式（支持 `plan` / `plan-ultra` / `build` / `review` / `flow` / `off`） |
+| `/flow` | 查看当前会话所处的工作流模式 |
+| `/flow spec` | 查看 `.flow/spec.md` 方案锚点挂载状态与摘要 |
+| `/flow compact` | 手动触发一次带锚点保活的上下文压缩 |
+| `/flow prompts list` | 查看本地提示词版本、各模式来源及官方/私有子代理清单 |
+| `/flow prompts update` | 从远端仓库增量更新官方提示词库 |
+| `/flow notify-test` | 自检 IM 推送与 SMTP 邮箱归档通道 |
+| `/flow retry` / `/flow escalate` / `/flow resume` | 桌面端手动执行熔断重试 / 升级诊断模型 / 解除暂停 |
 
-## 开源协议
+</details>
 
-本项目采用 **[PolyForm Noncommercial License 1.0.0](./LICENSE)**。
+完整技术细节（熔断状态机、IM 指令解析、本地回环 API 与环境变量）请参阅 **[docs/DETAIL.md](./docs/DETAIL.md)**。
 
-- 允许个人使用、学习研究、二次开发与非商业分发；
-- 禁止任何形式的商业用途；
-- 二次开发或再分发时，**必须明确注明使用了 `dsh-flow` 代码或基于本项目二次开发**，并保留 `LICENSE` 原文与其中的 `Required Notice`；
-- 依法律规定，软件按「现状」提供，不附带任何担保。
+---
+
+### 鸣谢
+
+* **[OpenCode](https://github.com/anomalyco/opencode)**：本项目的 `Plan` / `Build` 职责划分与多模式切换工作流设计，深受 OpenCode 架构思路启发。
+* **[dsh-team-control](https://github.com/hunmer/dsh-team-control/)**（[@hunmer](https://github.com/hunmer)）：为 DeepSeek Harness 生态提供团队编排与协作监控底座。
+* **[dsh-im](https://github.com/xmanrui/dsh-im)**（[@xmanrui](https://github.com/xmanrui)）：为 DeepSeek Harness 生态提供 IM 推送与双向消息底座。
+
+---
+
+### 开源协议
+
+本项目采用 **[PolyForm Noncommercial License 1.0.0](./LICENSE)** 发布：
+
+* **允许**：个人使用、学习研究、非商业用途下的修改、二次开发与分发；
+* **禁止**：任何形式的商业用途（商用产品集成、收费服务或营利性分发）；
+* **强制署名**：任何二次开发或再分发行为，**必须明确注明使用了 `dsh-flow` 代码或基于本项目二次开发**，并完整保留 `LICENSE` 原文及下方声明：
 
 ```text
-Required Notice: Copyright (c) 2026 MeZenith (https://github.com/MeZenith/dsh-flow).
+Required Notice: Copyright (c) 2026 MeZenith ([https://github.com/MeZenith/dsh-flow](https://github.com/MeZenith/dsh-flow)).
 Any derivative work or redistribution must clearly attribute dsh-flow and its original author.
 ```
 
-`vendor/` 下的第三方组件遵循各自许可，详见 [THIRD_PARTY_NOTES.md](./THIRD_PARTY_NOTES.md)。
+`vendor/` 目录下第三方组件的许可条款请参阅 [THIRD_PARTY_NOTES.md](./THIRD_PARTY_NOTES.md)。
