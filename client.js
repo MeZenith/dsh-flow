@@ -992,7 +992,8 @@ window.__ModuleLoader__.load({
       return merged
     }
 
-    function ModelField({ value, catalog, disabled, onChange, t }) {
+    function ModelField({ value, catalog, disabled, onChange, t, label }) {
+      const labelText = typeof label === 'string' && label !== '' ? label : t('mode.model')
       const saved = typeof value === 'string' ? value : ''
       const ready = catalog && catalog.status === 'ready'
 
@@ -1024,14 +1025,14 @@ window.__ModuleLoader__.load({
         : `model.state.${catalog?.status ?? 'loading'}`
 
       return h('div', { className: 'dsh-flow-field' },
-        h('span', { className: 'dsh-flow-fieldlabel' }, t('mode.model')),
+        h('span', { className: 'dsh-flow-fieldlabel' }, labelText),
         h(CustomSelect, {
           value: saved,
           options,
           groups,
           disabled,
           onChange,
-          ariaLabel: t('mode.model'),
+          ariaLabel: labelText,
           emptyHint: t('model.state.unavailable'),
         }),
         hintKey
@@ -1587,13 +1588,15 @@ window.__ModuleLoader__.load({
           numberField(['circuit', 'threshold'], circuitCfg.threshold ?? 3, 'notify.thresholdHint'),
           numberField(['circuit', 'idleSeconds'], circuitCfg.idleSeconds ?? 120, 'notify.idleHint'),
         ),
-        labeled('rescueModel', h(ModelField, {
+        h(ModelField, {
+          label: t('notify.rescueModel'),
           value: typeof circuitCfg.rescueModel === 'string' ? circuitCfg.rescueModel : '',
           catalog,
           disabled,
           onChange: next => { setField(['circuit', 'rescueModel'], next) },
           t,
-        }), 'notify.rescueModelHint'),
+        }),
+        h('span', { className: 'dsh-flow-hint' }, t('notify.rescueModelHint')),
       )
 
       /* ---- 卡片 2：IM 渠道与 Webhook ---- */
@@ -1775,7 +1778,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'dsh-flow-notice' }, t('notify.testHint')),
       )
 
-      const notifyPanel = h('div', { role: 'tabpanel', style: { display: 'grid', gap: '12px' } },
+      const notifyPanel = h('div', { role: 'tabpanel', style: { display: 'grid', gap: '16px' } },
         circuitCard,
         imCard,
         emailCard,

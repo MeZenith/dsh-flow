@@ -26,6 +26,40 @@ import { createEmailChannel } from './notify-email.js'
 import { createImChannel } from './notify-im.js'
 import { createNotifier } from './notify.js'
 import { createTeamWatcher } from './team-sse.js'
+import { appendFileSync, mkdirSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+
+/**
+ * 诊断日志出口：同时写宿主日志与自管文件。
+ *
+ * 宿主的 `~/.dsh/logs/startup-*.log` 是**启动快照**，运行期日志只到终端；
+ * 为了让排障有稳定可贴的文件，这里额外追加到 `~/.dsh/logs/dsh-flow-diag.log`。
+ *
+ * @param {{ info?: Function }} logger
+ * @returns {(message: string) => void}
+ */
+function createDiagSink(logger) {
+  let file
+  try {
+    const dir = join(homedir(), '.dsh', 'logs')
+    mkdirSync(dir, { recursive: true })
+    file = join(dir, 'dsh-flow-diag.log')
+  } catch {
+    file = undefined
+  }
+  return (message) => {
+    const line = `${new Date().toISOString()} [flow:diag] ${message}`
+    try {
+      logger?.info?.(line)
+    } catch { /* 忽略日志通道异常 */ }
+    if (file !== undefined) {
+      try {
+        appendFileSync(file, `${line}\n`, 'utf8')
+      } catch { /* 磁盘不可写时静默 */ }
+    }
+  }
+}
 
 export { Config }
 
@@ -141,6 +175,7 @@ export function apply(ctx, config) {
       warn: message => scoped.logger.warn(message),
       info: message => scoped.logger.info(message),
     }
+    const diag = createDiagSink(logger)
 
     // ---- 2. 可选服务：compaction / userQuestions 用子作用域动态持有 ----
     const compactionHolder = holdOptional(scoped, 'compaction')
@@ -170,7 +205,7 @@ export function apply(ctx, config) {
     })
     scoped.effect(() => () => notifier.dispose(), 'flow: notifier')
 
-    const breaker = createCircuitBreaker({ ctx: scoped, getConfig, notifier, logger, readMode })
+    const breaker = createCircuitBreaker({ ctx: scoped, getConfig, notifier, logger, readMode, im: imChannel, diagSink: diag })
     scoped.effect(() => () => breaker.dispose(), 'flow: circuit breaker')
 
     // 计数放在 `await next()` 之后：不干扰工具结果提交，也不在 waterfall 内急刹。
@@ -179,8 +214,9 @@ export function apply(ctx, config) {
       breaker.observe(exec, result)
       return decision
     })
-    // 锁定态下用 `{kind:'reject'}` 短接 1/2/3：0 token，且消息已被 claim，不会重复提案。
-    scoped.on('agent/pre-step', (payload, next) => breaker.preStep(payload, next))
+    // `agent/pre-step` 的注册下沉到每个 Agent 自己的 ctx（见下方 attach）：
+    // 事件在 Cordis 里沿 fiber 链向上派发，只有挂在 Agent 自己子树上的监听器
+    // 才能保证 IM 绑定会话、preset 隔离域里的会话也一定经过熔断拦截。
 
     const teamWatcher = createTeamWatcher({
       getConfig,
@@ -239,7 +275,15 @@ export function apply(ctx, config) {
         () => attachAgentSpecContext(agent.ctx, { agent, getConfig, getMode }),
         'flow: spec context',
       )
+      // 熔断拦截必须在 Agent 自己的作用域上注册，IM 会话与 preset 隔离域里的会话
+      // 才会同样经过这里（否则微信发来的 1/2/3 会绕过 preStep）。
+      const disposePreStep = agent.ctx.on(
+        'agent/pre-step',
+        (payload, next) => breaker.preStep(payload, next),
+      )
+      diag(`attach agent=${id} session=${agent.session?.id ?? '(无 sessionId)'} → 已挂 agent/pre-step`)
       agentDisposers.set(id, () => {
+        try { disposePreStep() } catch { /* Agent 已释放 */ }
         try { disposeSpec() } catch { /* Agent 已释放 */ }
         try { disposeMode() } catch { /* Agent 已释放 */ }
       })
