@@ -1,79 +1,77 @@
-dsh-flow — Source-Available Non-Commercial License, Version 1.0
-===============================================================================
+PolyForm Noncommercial License 1.0.0
 
-Copyright (c) 2026 MeZenith
-Project: dsh-flow
-Repository: https://github.com/MeZenith/dsh-flow
+https://polyformproject.org/licenses/noncommercial/1.0.0
 
-This license grants you the right to read, use, modify and share this software
-for non-commercial purposes, provided you credit the original project. It is a
-source-available license: it is NOT an OSI-approved open-source license, because
-Section 2 restricts commercial use.
+Required Notice: Copyright (c) 2026 MeZenith (https://github.com/MeZenith/dsh-flow). Any derivative work or redistribution must clearly attribute dsh-flow and its original author.
 
--------------------------------------------------------------------------------
-1. GRANT
--------------------------------------------------------------------------------
-Subject to Sections 2, 3 and 4, permission is hereby granted, free of charge, to
-any person obtaining a copy of this software and associated documentation files
-(the "Software"), to deal in the Software without restriction, including without
-limitation the rights to use, copy, modify, merge, publish, distribute and
-sublicense the Software and derivative works thereof.
+## Acceptance
 
--------------------------------------------------------------------------------
-2. NON-COMMERCIAL ONLY
--------------------------------------------------------------------------------
-The rights granted in Section 1 are limited to Non-Commercial Purposes.
+In order to get any license under these terms, you must agree to them as both strict obligations and conditions to all your licenses.
 
-"Non-Commercial Purposes" means purposes that are not primarily intended for or
-directed toward commercial advantage or monetary compensation. This includes,
-without limitation: personal use, hobby projects, study and teaching, academic
-research, internal evaluation, and use by a non-profit organization that does
-not sell the Software or a derivative work.
+## Copyright License
 
-Commercial use — including but not limited to selling the Software or a
-derivative work, bundling it into a paid product or paid service, or operating it
-as part of a revenue-generating offering — requires prior written permission from
-the copyright holder.
+The licensor grants you a copyright license for the software to do everything you might do with the software that would otherwise infringe the licensor's copyright in it for any permitted purpose. However, you may only distribute the software according to [Distribution License](#distribution-license) and make changes or new works based on the software according to [Changes and New Works License](#changes-and-new-works-license).
 
--------------------------------------------------------------------------------
-3. ATTRIBUTION
--------------------------------------------------------------------------------
-Any distribution of the Software or of a derivative work, in source or binary
-form, must:
+## Distribution License
 
-  (a) retain this license file and the copyright notice above;
+The licensor grants you an additional copyright license to distribute copies of the software. Your license to distribute covers distributing the software with changes and new works permitted by [Changes and New Works License](#changes-and-new-works-license).
 
-  (b) clearly credit the original project by name ("dsh-flow") and by its
-      repository URL (https://github.com/MeZenith/dsh-flow), in the
-      documentation, the about screen, or another place a recipient would
-      naturally look; and
+## Notices
 
-  (c) if the work was modified, state that it has been modified and must not
-      represent the derivative as the original, nor claim endorsement by the
-      original author.
+You must ensure that anyone who gets a copy of any part of the software from you also gets a copy of these terms or the URL for them above, as well as copies of any plain-text lines beginning with `Required Notice:` that the licensor provided with the software. For example:
 
--------------------------------------------------------------------------------
-4. THIRD-PARTY COMPONENTS
--------------------------------------------------------------------------------
-Files under the `vendor/` directory are third-party components distributed under
-the MIT License by their respective authors, and remain governed by the MIT
-License rather than by Sections 2 and 3 of this file. See `THIRD_PARTY_NOTES.md`
-for the exact upstream packages, versions and modifications. This license does
-not restrict any right you receive under those MIT terms for those files.
+> Required Notice: Copyright Yoyodyne, Inc. (http://example.com)
 
--------------------------------------------------------------------------------
-5. NO WARRANTY
--------------------------------------------------------------------------------
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN
-AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+## Changes and New Works License
 
--------------------------------------------------------------------------------
-6. TERMINATION
--------------------------------------------------------------------------------
-Any breach of Sections 2 or 3 terminates the rights granted by this license. The
-rights are reinstated automatically if the breach is cured within 30 days of
-becoming aware of it.
+The licensor grants you an additional copyright license to make changes and new works based on the software for any permitted purpose.
+
+## Patent License
+
+The licensor grants you a patent license for the software that covers patent claims the licensor can license, or becomes able to license, that you would infringe by using the software.
+
+## Noncommercial Purposes
+
+Any noncommercial purpose is a permitted purpose.
+
+## Personal Uses
+
+Personal use for research, experiment, and testing for the benefit of public knowledge, personal study, private entertainment, hobby projects, amateur pursuits, or religious observance, without any anticipated commercial application, is use for a permitted purpose.
+
+## Noncommercial Organizations
+
+Use by any charitable organization, educational institution, public research organization, public safety or health organization, environmental protection organization, or government institution is use for a permitted purpose regardless of the source of funding or obligations resulting from the funding.
+
+## Fair Use
+
+You may have "fair use" rights for the software under the law. These terms do not limit them.
+
+## No Other Rights
+
+These terms do not allow you to sublicense or transfer any of your licenses to anyone else, or prevent the licensor from granting licenses to anyone else. These terms do not imply any other licenses.
+
+## Patent Defense
+
+If you make any written claim that the software infringes or contributes to infringement of any patent, your patent license for the software granted under these terms ends immediately. If your company makes such a claim, your patent license ends immediately for work on behalf of your company.
+
+## Violations
+
+The first time you are notified in writing that you have violated any of these terms, or done anything with the software not covered by your licenses, your licenses can nonetheless continue if you come into full compliance with these terms, and take practical steps to correct past violations, within 32 days of receiving notice. Otherwise, all your licenses end immediately.
+
+## No Liability
+
+_**As far as the law allows, the software comes as is, without any warranty or condition, and the licensor will not be liable to you for any damages arising out of these terms or the use or nature of the software, under any kind of legal claim.**_
+
+## Definitions
+
+The **licensor** is the individual or entity offering these terms, and the **software** is the software the licensor makes available under these terms.
+
+**You** refers to the individual or entity agreeing to these terms.
+
+**Your company** is any legal entity, sole proprietorship, or other kind of organization that you work for, plus all organizations that have control over, are under the control of, or are under common control with that organization. **Control** means ownership of substantially all the assets of an entity, or the power to direct its management and policies by vote, contract, or otherwise. Control can be direct or indirect.
+
+**Your licenses** are all the licenses granted to you for the software under these terms.
+
+**Use** means anything you do with the software requiring one of your licenses.
+
+© PolyForm Project Inc.

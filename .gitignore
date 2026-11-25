@@ -81,3 +81,7 @@ desktop.ini
 !/prompt-updater.js
 !/prompts/**
 !/prompt-api.js
+!/docs/assets/
+!/docs/assets/*
+!/README.en.md
+!/CHANGELOG.md

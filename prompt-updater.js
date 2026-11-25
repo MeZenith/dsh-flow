@@ -93,6 +93,90 @@ export function describeFetchError(error) {
   return message
 }
 
+/** 解析语义化版本为数字数组；无法解析返回空数组。 */
+export function parseVersion(value) {
+  if (typeof value !== 'string') return []
+  const parts = value.trim().replace(/^v/i, '').split(/[.+-]/)
+  const numbers = []
+  for (const part of parts) {
+    if (!/^\d+$/.test(part)) break
+    numbers.push(Number(part))
+  }
+  return numbers
+}
+
+/** 语义化版本比较：a<b 返回 -1，相等返回 0，a>b 返回 1。 */
+export function compareVersion(a, b) {
+  const left = parseVersion(a)
+  const right = parseVersion(b)
+  const length = Math.max(left.length, right.length)
+  for (let index = 0; index < length; index += 1) {
+    const l = left[index] ?? 0
+    const r = right[index] ?? 0
+    if (l < r) return -1
+    if (l > r) return 1
+  }
+  return 0
+}
+
+/** 解析 ISO 时间；非法返回 NaN。 */
+function parseTime(value) {
+  if (typeof value !== 'string' || value.trim() === '') return Number.NaN
+  const time = Date.parse(value)
+  return Number.isFinite(time) ? time : Number.NaN
+}
+
+/** 读取本地 manifest 摘要，缺失或损坏时返回空对象。 */
+function readLocalManifest(root) {
+  const text = readLocal(join(root, 'manifest.json'))
+  if (text === undefined) return {}
+  try {
+    const parsed = JSON.parse(text)
+    return {
+      version: typeof parsed?.version === 'string' ? parsed.version : undefined,
+      updatedAt: typeof parsed?.updatedAt === 'string' ? parsed.updatedAt : undefined,
+    }
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * 判断远端 manifest 是否比本地更旧（镜像缓存滞后的典型症状）。
+ *
+ * 规则：版本号更低 → 判定回退；版本号相同但远端时间更早 → 判定回退。
+ * 两条信息任一缺失时按"无法证明回退"处理，交给 sha256 逐文件比对。
+ *
+ * @param {{ version?: string, updatedAt?: string }} remote
+ * @param {{ version?: string, updatedAt?: string }} local
+ * @returns {{ downgrade: boolean, reason?: string }}
+ */
+export function detectDowngrade(remote, local) {
+  const remoteVersion = remote?.version
+  const localVersion = local?.version
+  const versionOrder = remoteVersion !== undefined && localVersion !== undefined
+    ? compareVersion(remoteVersion, localVersion)
+    : 0
+
+  if (versionOrder < 0) {
+    return {
+      downgrade: true,
+      reason: `远端版本 ${remoteVersion} 早于本地 ${localVersion}`,
+    }
+  }
+
+  const remoteTime = parseTime(remote?.updatedAt)
+  const localTime = parseTime(local?.updatedAt)
+  if (Number.isFinite(remoteTime) && Number.isFinite(localTime) && remoteTime < localTime) {
+    return {
+      downgrade: true,
+      reason: `远端更新时间 ${remote.updatedAt} 早于本地 ${local.updatedAt}`,
+    }
+  }
+
+  return { downgrade: false }
+}
+
 /** 带超时的 GET 文本。 */
 async function fetchText(url, signal) {
   const controller = new AbortController()
@@ -243,6 +327,22 @@ export async function updatePrompts({ sourceUrl, root, signal, logger, allowMirr
 
   result.version = typeof manifest.version === 'string' ? manifest.version : undefined
 
+  // 防降级：远端比本地旧时整批跳过，绝不覆盖较新的本地文件。
+  const localManifest = readLocalManifest(root)
+  const downgrade = detectDowngrade(
+    { version: result.version, updatedAt: typeof manifest.updatedAt === 'string' ? manifest.updatedAt : undefined },
+    localManifest,
+  )
+  if (downgrade.downgrade === true) {
+    result.downgrade = true
+    result.localVersion = localManifest.version
+    result.localUpdatedAt = localManifest.updatedAt
+    result.reason = `远端版本早于本地（${downgrade.reason}），可能是镜像缓存滞后，已跳过以避免回退`
+    result.ok = true
+    logger?.info?.(`flow: ${result.reason}`)
+    return result
+  }
+
   for (const entry of checked.files) {
     if (signal?.aborted === true) {
       result.reason = '已取消'
@@ -289,6 +389,14 @@ export async function updatePrompts({ sourceUrl, root, signal, logger, allowMirr
  * @returns {string}
  */
 export function formatUpdateResult(result) {
+  if (result.downgrade === true) {
+    return [
+      `已跳过：${result.reason}。`,
+      `- 源：${result.source}`,
+      `- 本地版本：${result.localVersion ?? '未知'}`,
+      '本地文件保持不变。',
+    ].join('\n')
+  }
   if (result.ok !== true && result.updated.length === 0) {
     return `提示词更新失败：${result.reason ?? '原因未知'}（源：${result.source}）`
   }

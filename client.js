@@ -1627,6 +1627,9 @@ window.__ModuleLoader__.load({
                 if (result.fallback === true) {
                   lines.push(t('lib.updateFallback').replace('{reason}', String(result.primaryError ?? '')))
                 }
+                if (result.downgrade === true) {
+                  lines.push(t('lib.updateDowngrade').replace('{reason}', String(result.reason ?? '')))
+                }
                 setFeedback({ kind: result.ok === false ? 'error' : 'ok', text: lines.join(' ') })
                 refreshPrompts()
               })
@@ -2317,6 +2320,7 @@ window.__ModuleLoader__.load({
       'lib.updateDone': '更新 {updated} 个文件，跳过 {skipped} 个',
       'lib.updateSource': '源：{source}',
       'lib.updateFallback': '主源不可达：{reason}',
+      'lib.updateDowngrade': '已跳过：{reason}',
       'notify.teamEnabled': '联动 dsh-team-control',
       'notify.teamHint': '后台订阅团队事件流，服务未启动时会静默退避重连，不影响主流程。',
       'notify.teamUrl': 'team-control 地址',
@@ -2490,6 +2494,7 @@ window.__ModuleLoader__.load({
       'lib.updateDone': 'Updated {updated} files, skipped {skipped}',
       'lib.updateSource': 'Source: {source}',
       'lib.updateFallback': 'Primary source unreachable: {reason}',
+      'lib.updateDowngrade': 'Skipped: {reason}',
       'notify.teamEnabled': 'Link dsh-team-control',
       'notify.teamHint': 'Subscribes to the team event stream in the background; silent backoff when the service is down.',
       'notify.teamUrl': 'team-control base URL',
