@@ -69,3 +69,11 @@ desktop.ini
 *.local
 *.bak
 *.tmp
+!/activity.js
+!/circuit-breaker.js
+!/notify.js
+!/notify-im.js
+!/notify-email.js
+!/smtp-client.js
+!/smtp-presets.js
+!/team-sse.js

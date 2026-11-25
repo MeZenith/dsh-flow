@@ -162,3 +162,23 @@ export const ROUTE_CHOICES = Object.freeze(['plan', 'plan-ultra', 'build'])
 export function coerceModeToken(value) {
   return parseModeArg(typeof value === 'string' ? value : '')
 }
+/* ------------------------------------------------------------------ *
+ * S3 增量常量
+ * ------------------------------------------------------------------ */
+
+/** 通知分流策略。 */
+export const NOTIFY_STRATEGIES = Object.freeze(['im-first', 'email-first', 'both', 'off'])
+
+/** 四类通知事件。 */
+export const NOTIFY_EVENTS = Object.freeze(['brake', 'gate', 'team', 'archive'])
+
+/** SMTP 服务商预设。 */
+export const SMTP_PROVIDERS = Object.freeze(['qq', 'netease', 'gmail', 'custom'])
+
+/** 邮件主题状态标签。 */
+export const NOTIFY_SUBJECT_TAG = Object.freeze({
+  brake: '熔断告警',
+  gate: '待拍板',
+  team: '团队异常',
+  archive: '任务完结',
+})

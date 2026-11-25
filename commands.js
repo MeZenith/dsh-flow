@@ -50,7 +50,7 @@ function formatBytes(bytes) {
  * }} deps
  * @returns {object} 交给 `ctx.commands.register()` 的定义。
  */
-export function createFlowCommand({ ctx, getConfig, readMode, bridge, logger }) {
+export function createFlowCommand({ ctx, getConfig, readMode, bridge, logger, breaker, im, email }) {
   /** 当前模式的回执文案。 */
   function statusText(agent, config) {
     const current = readMode(agent.session)
@@ -78,8 +78,8 @@ export function createFlowCommand({ ctx, getConfig, readMode, bridge, logger }) 
   return {
     definitionId: COMMAND_ID,
     name: COMMAND_NAME,
-    description: '切换 Flow 工作流模式（off / plan / plan-ultra / build / review / flow），或用 spec / compact 查看方案锚点与手动压缩',
-    input: { hint: '<mode> | status | spec | compact' },
+    description: '切换 Flow 工作流模式（off / plan / plan-ultra / build / review / flow），或用 spec / compact 查看方案锚点与手动压缩，retry / escalate / resume 处理熔断，notify-test 自检通知链路',
+    input: { hint: '<mode> | status | spec | compact | retry | escalate | resume | notify-test' },
     // 保留 args：`flowMode` 投影正是从 command/run 的 args 派生当前模式。
     recordInput: true,
 
@@ -112,6 +112,53 @@ export function createFlowCommand({ ctx, getConfig, readMode, bridge, logger }) 
           }
         }
         return { kind: 'error', text: outcome.text }
+      }
+
+      // ---- 动作：熔断抢救 ----
+      if (head === 'retry' || head === 'escalate' || head === 'resume') {
+        if (breaker === undefined) {
+          return { kind: 'error', text: '熔断器未装配（S3 未启用）。' }
+        }
+        if (head === 'retry') {
+          breaker.retry(agent)
+          return { kind: 'success', text: '已清零连续报错计数，并用当前模型重新投递上一条要求。' }
+        }
+        if (head === 'escalate') {
+          const switched = await breaker.escalate(agent, signal)
+          return {
+            kind: 'success',
+            text: switched
+              ? '已切到救场强模型，并带报错摘要重新投递上一条要求。'
+              : '没有可用的救场强模型（未配置或不可解析），已按当前模型重新投递。',
+          }
+        }
+        breaker.resume(agent)
+        return { kind: 'success', text: '已解除熔断暂停状态，等待你的新指令。' }
+      }
+
+      // ---- 动作：通知链路自检 ----
+      if (head === 'notify-test') {
+        if (im === undefined || email === undefined) {
+          return { kind: 'error', text: '通知渠道未装配（S3 未启用）。' }
+        }
+        const imResult = await im.test()
+        const emailResult = await email.test()
+        const lines = [
+          `IM：${imResult.ok ? '成功' : '失败'} — ${imResult.detail}`,
+          `邮箱：${emailResult.ok ? '成功' : '失败'} — ${emailResult.detail}`,
+        ]
+        const bots = await im.listBots()
+        if (bots.length > 0) {
+          lines.push('', '已配置机器人：')
+          for (const bot of bots) {
+            const targets = await im.listTargets(bot.botId)
+            const names = targets.map(item => item.targetId).filter(Boolean).join('、')
+            lines.push(`- ${bot.botId}${bot.channel ? `（${bot.channel}）` : ''}${names === '' ? '' : ` → ${names}`}`)
+          }
+        } else {
+          lines.push('', 'dsh-im 未返回机器人列表：可在「IM机器人」设置页确认连接，或改用 Webhook。')
+        }
+        return { kind: 'success', text: lines.join('\n') }
       }
 
       // ---- 只读：当前模式 ----

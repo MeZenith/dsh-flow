@@ -169,7 +169,7 @@ function outputOf(toolName) {
  * }} deps
  * @returns {object[]} 可直接交给 `ctx.tools.register()` 的定义数组。
  */
-export function createFlowTools({ ctx, getConfig, switchMode, bridge, logger, getUserQuestions }) {
+export function createFlowTools({ ctx, getConfig, switchMode, bridge, logger, getUserQuestions, notifier }) {
   const routeTool = {
     name: ROUTE_TOOL,
     description: [
@@ -347,7 +347,27 @@ export function createFlowTools({ ctx, getConfig, switchMode, bridge, logger, ge
         ...(planToBuild ? { intent: { kind: 'plan-review', approve: approveLabel } } : {}),
       }
 
+      // 门禁挂起期间的「待拍板」提醒：由 notifier 按剩余空闲时间排期，
+      // 用户提前作答（或提问中止）就立刻取消，绝不发过期提醒。
+      const project = String(guard.agent.session?.header?.cwd ?? '').split(/[\\/]/).filter(Boolean).pop() ?? '未命名工作区'
+      const gateNotice = notifier?.schedule?.('gate', {
+        title: 'Flow 阶段门禁待拍板',
+        project,
+        agent: guard.agent,
+        session: guard.agent.session,
+        markdown: [
+          '## 阶段门禁待拍板',
+          '',
+          `- 项目：${project}`,
+          `- 阶段：${fromStage} → ${nextMode}`,
+          `- 结论：${String(args?.summary ?? '').slice(0, 600)}`,
+          '',
+          '回到会话选择「同意」/「方案还需调整」/「先暂停」即可。',
+        ].join('\n'),
+      })
+
       const asked = await askOnce({ ctx, getUserQuestions, questions: [question], agent: guard.agent, signal: exec?.signal })
+      gateNotice?.cancel?.()
       if (asked.ok !== true) return { outcome: 'unavailable', message: asked.text }
 
       if (asked.selected === pauseLabel) {
@@ -370,6 +390,25 @@ export function createFlowTools({ ctx, getConfig, switchMode, bridge, logger, ge
         ? `（${applied.notes.join('｜')}）`
         : ''
       const compactNote = compactScheduled ? '，将在本回合结束后自动压缩一次上下文' : ''
+
+      // 定稿 / 验收归档：Plan(Ultra) 定稿出方案、Review 通过都走 email-first 归档，
+      // 附件由 `collectAttachments` 按事件类型挑（archive → .flow/spec.md）。
+      if (specUpdated || fromStage === 'review') {
+        notifier?.schedule?.('archive', {
+          title: fromStage === 'review' ? 'Flow 验收通过' : 'Flow 方案定稿',
+          project,
+          agent: guard.agent,
+          session: guard.agent.session,
+          markdown: [
+            fromStage === 'review' ? '## 验收通过' : '## 方案定稿',
+            '',
+            `- 项目：${project}`,
+            `- 阶段：${fromStage} → ${nextMode}`,
+            `- 结论：${String(args?.summary ?? '').slice(0, 1200)}`,
+            specUpdated ? '- 方案已写入 `.flow/spec.md`（随信附上）' : '- 本次未标记方案落盘',
+          ].join('\n'),
+        })
+      }
       return {
         outcome: 'approved',
         mode: nextMode,

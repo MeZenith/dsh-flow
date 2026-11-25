@@ -8,7 +8,7 @@
  *   - `.flow/spec.md` 锚点保活（走 `required` runtime context，压缩后自动重挂）
  *   - 开局四选一路由与阶段强门禁两个工具（全局静态注册，永不增删）
  *
- * 明确不做（留给 S3）：连续报错熔断、`dsh-team-control` SSE、邮件/IM 通知、活跃心跳。
+ * 明确不做（留给后续）：真实焦点级桌面活跃心跳（需 Typert Remote codegen）。
  *
  * @module dsh-flow
  */
@@ -20,8 +20,36 @@ import { attachAgentModeContext, attachAgentSpecContext, installBaseSection } fr
 import { applyModeSwitch } from './switch-mode.js'
 import { createFlowTools } from './tools.js'
 import { MODE_OFF } from './modes.js'
+import { createActivityTracker } from './activity.js'
+import { createCircuitBreaker } from './circuit-breaker.js'
+import { createEmailChannel } from './notify-email.js'
+import { createImChannel } from './notify-im.js'
+import { createNotifier } from './notify.js'
+import { createTeamWatcher } from './team-sse.js'
 
 export { Config }
+
+/**
+ * 推断"项目名"，用于通知标题与邮件主题。
+ *
+ * 优先取任一活跃会话工作目录的末段；没有活跃会话时退回进程 cwd 的末段。
+ *
+ * @param {object} ctx 插件作用域。
+ * @returns {string}
+ */
+function projectNameOf(ctx) {
+  try {
+    for (const agent of ctx.agents.list()) {
+      const cwd = agent?.session?.header?.cwd
+      if (typeof cwd === 'string' && cwd !== '') {
+        const parts = cwd.split(/[\\/]/).filter(Boolean)
+        if (parts.length > 0) return parts[parts.length - 1]
+      }
+    }
+  } catch { /* 注册表不可读时退回 cwd */ }
+  const parts = (typeof process.cwd === 'function' ? process.cwd() : '').split(/[\\/]/).filter(Boolean)
+  return parts.length > 0 ? parts[parts.length - 1] : 'dsh-flow'
+}
 
 /**
  * 注意：本文件**只能**用命名导出（apply / inject / Config / name）。
@@ -127,6 +155,59 @@ export function apply(ctx, config) {
     // 回合空闲后执行登记的压缩；未登记时该监听器不做任何事。
     scoped.on('agent/status', payload => { bridge.onStatus(payload) })
 
+    // ---- 2b. S3：活跃度 / 双渠道通知 / 熔断 / 团队 SSE ----
+    const activity = createActivityTracker({ ctx: scoped })
+    scoped.effect(() => () => activity.dispose(), 'flow: activity')
+
+    const imChannel = createImChannel({ ctx: scoped, getConfig, logger })
+    const emailChannel = createEmailChannel({ getConfig, logger })
+    const notifier = createNotifier({
+      getConfig,
+      activity,
+      im: imChannel,
+      email: emailChannel,
+      logger,
+    })
+    scoped.effect(() => () => notifier.dispose(), 'flow: notifier')
+
+    const breaker = createCircuitBreaker({ ctx: scoped, getConfig, notifier, logger, readMode })
+    scoped.effect(() => () => breaker.dispose(), 'flow: circuit breaker')
+
+    // 计数放在 `await next()` 之后：不干扰工具结果提交，也不在 waterfall 内急刹。
+    scoped.on('tools/post-execute', async (exec, result, next) => {
+      const decision = await next()
+      breaker.observe(exec, result)
+      return decision
+    })
+    // 锁定态下用 `{kind:'reject'}` 短接 1/2/3：0 token，且消息已被 claim，不会重复提案。
+    scoped.on('agent/pre-step', (payload, next) => breaker.preStep(payload, next))
+
+    const teamWatcher = createTeamWatcher({
+      getConfig,
+      logger,
+      onAlert: (payload) => {
+        notifier.schedule('team', {
+          title: 'Flow 团队异常',
+          project: projectNameOf(scoped),
+          markdown: [
+            '## 团队异常 / 审批',
+            '',
+            `- 类型：${payload.type}`,
+            `- 摘要：${payload.summary}`,
+          ].join('\n'),
+        })
+      },
+      onComplete: (payload) => {
+        notifier.schedule('archive', {
+          title: 'Flow 团队完结',
+          project: projectNameOf(scoped),
+          markdown: ['## 团队任务完结', '', `- ${payload.summary}`].join('\n'),
+        })
+      },
+    })
+    teamWatcher.start()
+    scoped.effect(() => () => teamWatcher.stop(), 'flow: team sse')
+
     // ---- 3. 命令与工具共用的切换事务 ----
     const switchMode = (agent, modeId, signal) => applyModeSwitch({
       ctx: scoped,
@@ -177,6 +258,7 @@ export function apply(ctx, config) {
       bridge,
       logger,
       getUserQuestions: () => questionsHolder.get(),
+      notifier,
     })) {
       scoped.effect(
         () => scoped.tools.register(definition),
@@ -192,8 +274,28 @@ export function apply(ctx, config) {
         readMode,
         bridge,
         logger,
+        breaker,
+        im: imChannel,
+        email: emailChannel,
       })),
       'flow: command',
+    )
+
+    // ---- 7b. 内部命令：把熔断告警渲染成一条可见命令行（0 token、不进模型上下文）----
+    scoped.effect(
+      () => scoped.commands.register({
+        definitionId: 'flow-notice',
+        name: 'flow-notice',
+        description: '内部使用：渲染 Flow 熔断告警',
+        recordInput: false,
+        handler({ agent }) {
+          const text = breaker.alertTextOf(agent)
+          return text === ''
+            ? { kind: 'error', text: '当前没有待显示的熔断告警。' }
+            : { kind: 'success', text }
+        },
+      }),
+      'flow: notice command',
     )
 
     // ---- 8. 插件卸载时补齐 Agent 侧清理 ----

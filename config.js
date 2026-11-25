@@ -13,7 +13,7 @@
  */
 import z from './vendor/schemastery.mjs'
 import { isVolatile } from './vendor/cosmokit.mjs'
-import { MODE_IDS, MODE_PRESETS, PERMISSION_CHOICES } from './modes.js'
+import { MODE_IDS, MODE_PRESETS, NOTIFY_STRATEGIES, PERMISSION_CHOICES, SMTP_PROVIDERS } from './modes.js'
 import { DEFAULT_SPEC_PATH } from './spec-anchor.js'
 
 /* ------------------------------------------------------------------ *
@@ -168,6 +168,74 @@ export const Config = z.object({
     allowWhileRunning: z.boolean().default(true),
     autoCompactOnGate: z.boolean().default(true),
   }).default({ announce: true, allowWhileRunning: true, autoCompactOnGate: true }).volatile(),
+
+  /* ---------------- S3 增量 ---------------- */
+
+  circuit: z.object({
+    enabled: z.boolean().default(true),
+    threshold: z.number().default(3),
+    rescueModel: z.string().default(''),
+    idleSeconds: z.number().default(120),
+  }).default({ enabled: true, threshold: 3, rescueModel: '', idleSeconds: 120 }).volatile(),
+
+  team: z.object({
+    enabled: z.boolean().default(true),
+    baseUrl: z.string().default('http://127.0.0.1:4317'),
+  }).default({ enabled: true, baseUrl: 'http://127.0.0.1:4317' }).volatile(),
+
+  im: z.object({
+    enabled: z.boolean().default(true),
+    botId: z.string().default(''),
+    targetId: z.string().default(''),
+    webhook: z.object({
+      enabled: z.boolean().default(false),
+      url: z.string().default(''),
+      kind: z.union(['feishu', 'dingtalk', 'wecom', 'bark', 'pushplus', 'custom']).default('feishu'),
+    }).default({ enabled: false, url: '', kind: 'feishu' }),
+  }).default({
+    enabled: true,
+    botId: '',
+    targetId: '',
+    webhook: { enabled: false, url: '', kind: 'feishu' },
+  }).volatile(),
+
+  email: z.object({
+    enabled: z.boolean().default(false),
+    provider: z.union(SMTP_PROVIDERS).default('qq'),
+    fromName: z.string().default('dsh-flow'),
+    account: z.string().default(''),
+    secret: z.string().role('secret').default(''),
+    to: z.string().default(''),
+    host: z.string().default(''),
+    port: z.number().default(465),
+    security: z.union(['ssl', 'starttls']).default('ssl'),
+    attachLimitBytes: z.number().default(2 * 1024 * 1024),
+    forceArchive: z.boolean().default(false),
+  }).default({
+    enabled: false,
+    provider: 'qq',
+    fromName: 'dsh-flow',
+    account: '',
+    secret: '',
+    to: '',
+    host: '',
+    port: 465,
+    security: 'ssl',
+    attachLimitBytes: 2 * 1024 * 1024,
+    forceArchive: false,
+  }).volatile(),
+
+  notify: z.object({
+    brake: z.union(NOTIFY_STRATEGIES).default('im-first'),
+    gate: z.union(NOTIFY_STRATEGIES).default('im-first'),
+    team: z.union(NOTIFY_STRATEGIES).default('im-first'),
+    archive: z.union(NOTIFY_STRATEGIES).default('email-first'),
+  }).default({
+    brake: 'im-first',
+    gate: 'im-first',
+    team: 'im-first',
+    archive: 'email-first',
+  }).volatile(),
 })
 
 /**
@@ -194,6 +262,23 @@ export function plainConfigOf(raw) {
     modes: read(raw?.modes, {}),
     spec: read(raw?.spec, { enabled: true, path: DEFAULT_SPEC_PATH, maxChars: 600 }),
     behavior: read(raw?.behavior, {}),
+    circuit: read(raw?.circuit, { enabled: true, threshold: 3, rescueModel: '', idleSeconds: 120 }),
+    team: read(raw?.team, { enabled: true, baseUrl: 'http://127.0.0.1:4317' }),
+    im: read(raw?.im, { enabled: true, botId: '', targetId: '', webhook: { enabled: false, url: '', kind: 'feishu' } }),
+    email: read(raw?.email, {
+      enabled: false,
+      provider: 'qq',
+      fromName: 'dsh-flow',
+      account: '',
+      secret: '',
+      to: '',
+      host: '',
+      port: 465,
+      security: 'ssl',
+      attachLimitBytes: 2 * 1024 * 1024,
+      forceArchive: false,
+    }),
+    notify: read(raw?.notify, { brake: 'im-first', gate: 'im-first', team: 'im-first', archive: 'email-first' }),
   }
 }
 
