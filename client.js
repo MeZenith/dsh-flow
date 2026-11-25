@@ -335,7 +335,7 @@ window.__ModuleLoader__.load({
   font: inherit;
   font-size: 13px;
 }
-.dsh-flow-textarea { min-height: 78px; resize: vertical; line-height: 18px; }
+.dsh-flow-textarea { min-height: 220px; resize: vertical; line-height: 18px; }
 /* 默认态就要看得见边框，否则在一堆文字里定位不到输入区。 */
 .dsh-flow-input,
 .dsh-flow-textarea {
@@ -1296,7 +1296,7 @@ window.__ModuleLoader__.load({
           h(TextField, {
             value: typeof activeCfg?.prompt === 'string' ? activeCfg.prompt : '',
             multiline: true,
-            rows: 8,
+            rows: 14,
             disabled,
             onCommit: next => { setField(['modes', activeMode, 'prompt'], next) },
           }),
@@ -1394,7 +1394,7 @@ window.__ModuleLoader__.load({
                 h(TextField, {
                   value: typeof set?.text === 'string' ? set.text : '',
                   multiline: true,
-                  rows: 7,
+                  rows: 13,
                   disabled,
                   onCommit: next => { setField(['promptSets', key, 'text'], next) },
                 }),
@@ -1446,7 +1446,7 @@ window.__ModuleLoader__.load({
           h(TextField, {
             value: typeof value.baseRules === 'string' ? value.baseRules : '',
             multiline: true,
-            rows: 9,
+            rows: 14,
             disabled,
             onCommit: next => { setField(['baseRules'], next) },
           }),
