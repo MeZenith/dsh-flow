@@ -16,6 +16,18 @@ import { dirname, join } from 'node:path'
 /** 官方默认源（raw.githubusercontent 的 prompts 目录）。 */
 export const DEFAULT_SOURCE_URL = 'https://raw.githubusercontent.com/MeZenith/dsh-flow/main/prompts'
 
+/**
+ * 内置镜像源，按顺序兜底。
+ *
+ * 实测：部分网络环境下 `raw.githubusercontent.com` 与 `github.com` 都不可达，
+ * 而 jsDelivr 的 GitHub CDN 通常可用。配置源失败后自动依次尝试这些镜像，
+ * 只要有一个成功就继续，并在回执里说明实际用的是哪个源。
+ */
+export const MIRROR_SOURCES = Object.freeze([
+  'https://cdn.jsdelivr.net/gh/MeZenith/dsh-flow@main/prompts',
+  DEFAULT_SOURCE_URL,
+])
+
 /** 允许被远端覆盖的路径白名单。 */
 const ALLOWED = [
   /^manifest\.json$/,
@@ -50,6 +62,22 @@ export function normalizeSource(raw) {
   if (value === '') return DEFAULT_SOURCE_URL
   const withScheme = /^https?:\/\//i.test(value) ? value : `https://${value}`
   return withScheme.replace(/\/+$/, '')
+}
+
+/**
+ * 源地址链：配置源优先，随后是内置镜像（去重）。
+ *
+ * @param {string} [configured] 用户配置的源。
+ * @returns {string[]}
+ */
+export function buildSourceChain(configured) {
+  const first = normalizeSource(configured)
+  const chain = [first]
+  for (const mirror of MIRROR_SOURCES) {
+    const normalized = normalizeSource(mirror)
+    if (!chain.includes(normalized)) chain.push(normalized)
+  }
+  return chain
 }
 
 /** 带超时的 GET 文本。 */
@@ -140,15 +168,34 @@ export function validateManifest(value) {
  * }>}
  */
 export async function updatePrompts({ sourceUrl, root, signal, logger }) {
-  const base = normalizeSource(sourceUrl)
-  const result = { ok: false, source: base, updated: [], skipped: [], failed: [] }
+  const chain = buildSourceChain(sourceUrl)
+  const requested = chain[0]
+  const result = { ok: false, source: requested, requested, updated: [], skipped: [], failed: [] }
 
+  // 逐源尝试拉 manifest：网络环境差异很大，第一个不通就换镜像。
+  let base
   let manifestText
-  try {
-    manifestText = await fetchText(`${base}/manifest.json`, signal)
-  } catch (error) {
-    result.reason = `拉取 manifest 失败：${error instanceof Error ? error.message : String(error)}`
+  const attempts = []
+  for (const candidate of chain) {
+    if (signal?.aborted === true) {
+      result.reason = '已取消'
+      return result
+    }
+    try {
+      manifestText = await fetchText(`${candidate}/manifest.json`, signal)
+      base = candidate
+      break
+    } catch (error) {
+      attempts.push(`${candidate} → ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+  if (base === undefined || manifestText === undefined) {
+    result.reason = `所有源都拉取 manifest 失败：${attempts.join('；')}`
     return result
+  }
+  result.source = base
+  if (base !== requested) {
+    logger?.info?.(`flow: 提示词主源不可达，已改用镜像 ${base}`)
   }
 
   let manifest
@@ -219,6 +266,9 @@ export function formatUpdateResult(result) {
   const lines = []
   lines.push(result.ok === true ? '提示词已更新。' : '提示词部分更新，详情见下。')
   lines.push(`- 源：${result.source}`)
+  if (typeof result.requested === 'string' && result.requested !== result.source) {
+    lines.push(`- 主源不可达，已自动改用镜像`)
+  }
   if (result.version !== undefined) lines.push(`- 版本：${result.version}`)
   lines.push(`- 更新 ${result.updated.length} 个：${result.updated.length > 0 ? result.updated.join('、') : '（无）'}`)
   lines.push(`- 跳过 ${result.skipped.length} 个（内容未变）`)
