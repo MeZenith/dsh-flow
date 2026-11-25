@@ -36,16 +36,52 @@ export { Config }
 /** 插件诊断名。 */
 export const name = 'flow'
 
-/**
- * 硬依赖：缺任一服务则该插件不激活（而不是半残运行）。
+/** 硬依赖：缺任一服务则该插件不激活（而不是半残运行）。
  *
  * `userQuestions` 与 `compaction` **故意不在这里**：它们是可选能力，
  * 缺了只应让对应功能降级（工具返回 `unavailable`、命令回报"服务不可用"），
  * 而不该让整个插件（含 S1 的模式切换与提示词注入）跟着不加载。
- * 两者都通过 `ctx.get(...)` 安全获取 —— Cordis 的 `inject` 没有 optional 声明
- * （`vendor/cordis/lib/types/registry.d.ts:13-15` 的对象形式是 intercept config）。
+ *
+ * Cordis 的 `inject` 没有 optional 声明（`vendor/cordis/lib/types/registry.d.ts:13-15`
+ * 的对象形式是 intercept config），所以可选依赖用 `holdOptional()` 单独维护：
+ * 它对每个服务开一个 `ctx.inject([name], …)` 子作用域，服务**加载后**才回调，
+ * 拿到真实实例并在 fiber 卸载时自动清空。
  */
 export const inject = ['systemPrompt', 'commands', 'sessionProjections', 'agents', 'tools']
+
+/**
+ * 可选服务的动态持有者。
+ *
+ * 为什么不用"调用时 `ctx.get()`"了事：`compaction` 的实现
+ * （`@deepseek-ai/dsh-compaction-basic`）在 web-app 里被宿主平面禁用、
+ * 改由 agent preset 树挂载（`bundle/web-app/cordis.patch.yml:575-582`），
+ * 所以宿主平面可能永远看不到它 —— 只靠 `ctx.get` 会稳定拿到 undefined。
+ * 这里先订阅"服务可用"事件拿住真实实例；真正解析时还要先问 agent 自己的作用域
+ * （见 `compact-bridge.js` 的 `resolve()`）。
+ *
+ * @param {import('@deepseek-ai/cordis').Context} ownerCtx
+ * @param {string} name 服务键名。
+ * @returns {{ get: () => object | undefined }}
+ */
+function holdOptional(ownerCtx, name) {
+  const holder = { current: undefined }
+  const ready = ownerCtx.inject([name], (sub) => {
+    holder.current = typeof sub.get === 'function' ? sub.get(name) : sub[name]
+    return () => { holder.current = undefined }
+  })
+  // 该子作用域可能一直等不到服务；吞掉 reject，避免变成未处理拒绝。
+  void Promise.resolve(ready).catch(() => { holder.current = undefined })
+  return {
+    get() {
+      if (holder.current !== undefined) return holder.current
+      try {
+        return ownerCtx.get(name)
+      } catch {
+        return undefined
+      }
+    },
+  }
+}
 
 /**
  * 插件主体。
@@ -78,8 +114,15 @@ export function apply(ctx, config) {
       info: message => scoped.logger.info(message),
     }
 
-    // ---- 2. 压缩桥：可选服务，缺了只降级 ----
-    const bridge = createCompactBridge({ ctx: scoped, logger })
+    // ---- 2. 可选服务：compaction / userQuestions 用子作用域动态持有 ----
+    const compactionHolder = holdOptional(scoped, 'compaction')
+    const questionsHolder = holdOptional(scoped, 'userQuestions')
+
+    const bridge = createCompactBridge({
+      ctx: scoped,
+      getHostCompaction: () => compactionHolder.get(),
+      logger,
+    })
     scoped.effect(() => () => bridge.dispose(), 'flow: compact bridge')
     // 回合空闲后执行登记的压缩；未登记时该监听器不做任何事。
     scoped.on('agent/status', payload => { bridge.onStatus(payload) })
@@ -127,7 +170,14 @@ export function apply(ctx, config) {
     // ---- 6. 工具：全局静态注册一次，永不随模式增删 ----
     // 注册在插件级 ctx 上 = 全局可见；绝不能注册到 agent.ctx，
     // 也不能在切模式时 register/unregister（那会让 toolsChanged 打穿 prefix cache）。
-    for (const definition of createFlowTools({ ctx: scoped, getConfig, switchMode, bridge, logger })) {
+    for (const definition of createFlowTools({
+      ctx: scoped,
+      getConfig,
+      switchMode,
+      bridge,
+      logger,
+      getUserQuestions: () => questionsHolder.get(),
+    })) {
       scoped.effect(
         () => scoped.tools.register(definition),
         `flow: tool ${definition.name}`,

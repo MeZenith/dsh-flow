@@ -16,6 +16,7 @@ import {
 } from './modes.js'
 import { applyModeSwitch } from './switch-mode.js'
 import { inspectSpec } from './spec-anchor.js'
+import { COMPACT_MESSAGES } from './compact-bridge.js'
 
 /** 命令名（不含斜杠）。 */
 export const COMMAND_NAME = 'flow'
@@ -93,7 +94,7 @@ export function createFlowCommand({ ctx, getConfig, readMode, bridge, logger }) 
       // ---- 动作：手动压缩 ----
       if (head === 'compact') {
         if (typeof bridge?.runNow !== 'function') {
-          return { kind: 'error', text: 'compaction 服务不可用，无法压缩。' }
+          return { kind: 'error', text: COMPACT_MESSAGES.unavailable }
         }
         // 命令不持有回合，天然处于 idle；`runNow` 内部仍会按错误码回报 busy。
         const outcome = await bridge.runNow(agent, signal)

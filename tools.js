@@ -66,18 +66,35 @@ function rootGuard(exec) {
  *
  * @param {{
  *   ctx: object,
+ *   getUserQuestions?: () => object | undefined,
  *   questions: object[],
  *   agent: object,
  *   signal?: AbortSignal,
  * }} input
+ *   `getUserQuestions` 由 `index.js` 通过可选子级注入维护；缺省时退回 `ctx.get`。
  * @returns {Promise<{ ok: true, selected: string } | { ok: false, text: string }>}
  */
-async function askOnce({ ctx, questions, agent, signal }) {
+async function askOnce({ ctx, getUserQuestions, questions, agent, signal }) {
   let userQuestions
   try {
-    userQuestions = ctx.get('userQuestions')
+    userQuestions = typeof getUserQuestions === 'function' ? getUserQuestions() : ctx.get('userQuestions')
   } catch {
     userQuestions = undefined
+  }
+  // preset 隔离域优先：与 compaction 同理，realm 内的服务外部 ctx.get 看不见。
+  if (userQuestions === undefined || typeof userQuestions.ask !== 'function') {
+    try {
+      const presets = ctx.get('agentPresets')
+      const fromPreset = typeof presets?.serviceFor === 'function' ? presets.serviceFor(agent, 'userQuestions') : undefined
+      if (typeof fromPreset?.ask === 'function') userQuestions = fromPreset
+    } catch { /* 该组合没有 preset 注册表，继续回落 */ }
+  }
+  // agent 自己的作用域其次：非隔离组合可能只在那里提供。
+  if (userQuestions === undefined || typeof userQuestions.ask !== 'function') {
+    try {
+      const local = agent?.ctx?.get?.('userQuestions')
+      if (typeof local?.ask === 'function') userQuestions = local
+    } catch { /* 作用域不可读，继续用上一步结果 */ }
   }
   if (userQuestions === undefined || typeof userQuestions.ask !== 'function') {
     return { ok: false, text: TOOL_MESSAGES.noQuestions }
@@ -152,7 +169,7 @@ function outputOf(toolName) {
  * }} deps
  * @returns {object[]} 可直接交给 `ctx.tools.register()` 的定义数组。
  */
-export function createFlowTools({ ctx, getConfig, switchMode, bridge, logger }) {
+export function createFlowTools({ ctx, getConfig, switchMode, bridge, logger, getUserQuestions }) {
   const routeTool = {
     name: ROUTE_TOOL,
     description: [
@@ -229,7 +246,7 @@ export function createFlowTools({ ctx, getConfig, switchMode, bridge, logger }) 
         multiSelect: false,
       }
 
-      const asked = await askOnce({ ctx, questions: [question], agent: guard.agent, signal: exec?.signal })
+      const asked = await askOnce({ ctx, getUserQuestions, questions: [question], agent: guard.agent, signal: exec?.signal })
       if (asked.ok !== true) return { outcome: 'unavailable', message: asked.text }
 
       const index = options.findIndex(option => option.label === asked.selected)
@@ -330,7 +347,7 @@ export function createFlowTools({ ctx, getConfig, switchMode, bridge, logger }) 
         ...(planToBuild ? { intent: { kind: 'plan-review', approve: approveLabel } } : {}),
       }
 
-      const asked = await askOnce({ ctx, questions: [question], agent: guard.agent, signal: exec?.signal })
+      const asked = await askOnce({ ctx, getUserQuestions, questions: [question], agent: guard.agent, signal: exec?.signal })
       if (asked.ok !== true) return { outcome: 'unavailable', message: asked.text }
 
       if (asked.selected === pauseLabel) {

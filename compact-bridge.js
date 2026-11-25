@@ -1,6 +1,30 @@
 /**
  * `compactNow` 桥：把原生压缩能力安全地接到两个入口上。
  *
+ * === 服务到底在哪（实测调用链） ===
+ *
+ * 原生 `/compact` 由 `@deepseek-ai/dsh-command-compact` 提供，它与
+ * `@deepseek-ai/dsh-compaction-basic` 一起被**挂在 agent preset 树里**
+ * （`bundle/web-app/presets/{standard,ptc,minimal,cordis}.patch.yml` 全部有这两行），
+ * 而宿主平面上的同名行被 `bundle/web-app/cordis.patch.yml:575-582` 显式禁用。
+ *
+ * preset 树挂在 **`isolate` 隔离域**里：`agent-preset-registry/src/mount.ts`
+ * 的 `leakedServices()` 注释写得很清楚 —— "a provider inside an `isolate` realm
+ * stores under a realm-private symbol and is correctly absent here"。
+ * 也就是说隔离域内注册的服务**故意**用私有 symbol 存放，
+ * `ctx.get('compaction')` 与 `agent.ctx.get('compaction')` 都跨不过这道边界。
+ *
+ * 唯一官方通路是 `agentPresets.serviceFor(agent, name)`
+ * （`agent-preset-registry/src/index.ts:335-343`：*"Read a service supplied inside
+ * an Agent's isolated preset group"*），它绕开普通服务继承、直接在 root service store
+ * 里按 fiber 归属查找，因此能读到隔离域内的实例。
+ *
+ * 解析顺序（先隔离域，后宿主平面）：
+ *   1. `ctx.get('agentPresets').serviceFor(agent, 'compaction')` —— 原生压缩的真实位置；
+ *   2. `agent.ctx.get('compaction')` —— 非隔离组合（preset 直接挂在 agent 作用域）；
+ *   3. 插件侧 optional-inject 持有的宿主实现（服务热加时装上）；
+ *   4. `ctx.get('compaction')` —— 宿主平面兜底。
+ *
  * === 为什么不能直接 await（源码依据） ===
  *
  * `compaction-basic/src/region.ts:191-196`：
@@ -41,32 +65,77 @@ export const COMPACT_MESSAGES = Object.freeze({
   summary: '没能生成有用的摘要，这次尝试已记入会话日志。',
   commit: '压缩没能干净收尾，部分历史可能已变化；建议先检查会话状态再重试。',
   persistence: '压缩完成，但会话没能保存。',
-  unavailable: '当前组合没有 compaction 服务，无法执行压缩。',
+  unavailable: '当前会话的 preset 与宿主平面都没有 compaction 实现，无法执行压缩。',
   unknown: '压缩失败，原因见日志。',
 })
 
 /** 成功文案。 */
 export const COMPACT_OK = '已压缩历史。'
 
+/** 判定一个候选值是不是可用的压缩实现。 */
+function isImplementation(value) {
+  return value !== null && typeof value === 'object' && typeof value.compactNow === 'function'
+}
+
+/** 安全读一个可能抛错的访问器。 */
+function safeGet(read) {
+  try {
+    return read()
+  } catch {
+    return undefined
+  }
+}
+
 /**
  * 创建压缩桥。
  *
- * @param {{ ctx: import('@deepseek-ai/cordis').Context, logger?: { info?: Function, warn?: Function } }} deps
+ * @param {{
+ *   ctx: import('@deepseek-ai/cordis').Context,
+ *   getHostCompaction?: () => object | undefined,
+ *   logger?: { info?: Function, warn?: Function },
+ * }} deps
+ *   `getHostCompaction` 由 `index.js` 通过 `ctx.inject(['compaction'], …)` 维护，
+ *   服务热加时自动装上、fiber 卸载时清空；缺省时退回 `ctx.get('compaction')`。
  */
-export function createCompactBridge({ ctx, logger }) {
+export function createCompactBridge({ ctx, getHostCompaction, logger }) {
   /** 等待空闲的 agent 集合。 */
   const waiting = new Set()
   /** 已排定的定时器，卸载时统一清掉。 */
   const timers = new Set()
   let disposed = false
 
-  /** 安全获取可选服务：缺失返回 undefined，绝不抛错。 */
-  function compactionOf() {
-    try {
-      return ctx.get('compaction')
-    } catch {
-      return undefined
+  /**
+   * 按 preset 隔离域 → agent 作用域 → 宿主注入 → 兜底直读 的顺序解析实现。
+   *
+   * @param {object | undefined} agent
+   * @returns {object | undefined}
+   */
+  function resolve(agent) {
+    // 1) preset 隔离域：原生 /compact 用的就是这份实例。
+    //    跨作用域读取必须走 agentPresets.serviceFor()，普通 ctx.get 会因
+    //    realm-private symbol 而永远拿到 undefined。
+    const presets = safeGet(() => ctx.get('agentPresets'))
+    if (presets !== undefined && presets !== null && typeof presets.serviceFor === 'function') {
+      const fromPreset = safeGet(() => presets.serviceFor(agent, 'compaction'))
+      if (isImplementation(fromPreset)) return fromPreset
     }
+    // 2) agent 自己的作用域：非隔离组合（preset 直接挂在 agent ctx 上）。
+    const local = safeGet(() => agent?.ctx?.get?.('compaction'))
+    if (isImplementation(local)) return local
+    // 3) 插件侧 optional-inject 捕获的宿主实现。
+    const injected = typeof getHostCompaction === 'function' ? safeGet(getHostCompaction) : undefined
+    if (isImplementation(injected)) return injected
+    // 4) 兜底：直读当前 ctx（服务可能在插件加载后才注册）。
+    const direct = safeGet(() => ctx.get('compaction'))
+    if (isImplementation(direct)) return direct
+    return undefined
+  }
+
+  /** 诊断用：当前 agent 绑定的 preset id（读不到就 undefined）。 */
+  function presetIdOf(agent) {
+    const presets = safeGet(() => ctx.get('agentPresets'))
+    if (presets === undefined || presets === null || typeof presets.composedPreset !== 'function') return undefined
+    return safeGet(() => presets.composedPreset(agent?.ctx))
   }
 
   /**
@@ -77,8 +146,10 @@ export function createCompactBridge({ ctx, logger }) {
    * @returns {Promise<{ ok: boolean, code: string, text: string, result?: object | null }>}
    */
   async function runNow(agent, signal) {
-    const compaction = compactionOf()
-    if (compaction === undefined || typeof compaction.compactNow !== 'function') {
+    const compaction = resolve(agent)
+    if (compaction === undefined) {
+      const presetId = presetIdOf(agent)
+      logger?.warn?.(`flow: 未找到 compaction 实现（preset=${presetId ?? '未绑定'}；preset 隔离域与宿主平面均未提供）`)
       return { ok: false, code: 'unavailable', text: COMPACT_MESSAGES.unavailable }
     }
     try {
@@ -174,6 +245,11 @@ export function createCompactBridge({ ctx, logger }) {
     void Promise.resolve().then(() => { attempt(agent, 0) })
   }
 
+  /** 探测当前是否能看到实现（供 `/flow compact` 的诊断文案使用）。 */
+  function available(agent) {
+    return resolve(agent) !== undefined
+  }
+
   /** 卸载：取消定时器并清空登记。 */
   function dispose() {
     disposed = true
@@ -182,5 +258,5 @@ export function createCompactBridge({ ctx, logger }) {
     timers.clear()
   }
 
-  return { schedule, isScheduled, runNow, onStatus, dispose }
+  return { schedule, isScheduled, runNow, onStatus, available, dispose }
 }
