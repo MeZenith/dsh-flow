@@ -13,6 +13,7 @@
  * @module dsh-flow/prompt-bridge
  */
 import { buildModeText } from './mode-plan.js'
+import { buildSpecNote } from './spec-anchor.js'
 
 /** 全局底座 section 的名字（唯一，重复注册会抛错）。 */
 export const BASE_SECTION = 'flow:base'
@@ -75,5 +76,47 @@ export function attachAgentModeContext(agentCtx, source) {
   })
 }
 
+/* ------------------------------------------------------------------ *
+ * S2：`.flow/spec.md` 方案锚点便利贴
+ * ------------------------------------------------------------------ */
+
+/** 每个 Agent 的方案锚点 context 名字。 */
+export const SPEC_CONTEXT = 'flow:spec'
+
+/**
+ * 方案便利贴的 order。
+ *
+ * 排在模式 context（500）之前：先给"我们在做什么"的事实，再给"这一步怎么干"的硬规则。
+ * 与 `RuntimeContextProjection` 的压缩重挂配合 —— `required: true` 保证压缩后
+ * 由投影自动重新下发这一块，而不是彻底消失。
+ */
+const SPEC_CONTEXT_ORDER = 300
+
+/**
+ * 为一个 Agent 注册方案锚点 context。
+ *
+ * 注入的是"便利贴"而不是全文：`buildSpecNote()` 内部按 `mtimeMs` 缓存文件内容，
+ * 每次装配只重拼前缀（路径 / 阶段 / 摘要 / 去看全文的提示），
+ * 因此即便 `required` context 在每次压缩后都重挂，也不会反复灌入大文件。
+ *
+ * @param {import('@deepseek-ai/cordis').Context} agentCtx `agent.ctx`。
+ * @param {{ agent: object, getConfig: () => object, getMode: () => string }} source
+ * @returns {() => void} disposer。
+ */
+export function attachAgentSpecContext(agentCtx, source) {
+  return agentCtx.systemPrompt.context({
+    name: SPEC_CONTEXT,
+    order: SPEC_CONTEXT_ORDER,
+    required: true,
+    interpolate: false,
+    text: () => {
+      const config = source.getConfig()
+      const modeId = source.getMode()
+      const label = typeof config?.modes?.[modeId]?.label === 'string' ? config.modes[modeId].label : modeId
+      return buildSpecNote({ agent: source.agent, config, modeId, modeLabel: label })
+    },
+  })
+}
+
 /** 幂等拆除用的名字常量，供调用方核对。 */
-export const PROMPT_NAMES = Object.freeze({ BASE_SECTION, MODE_CONTEXT })
+export const PROMPT_NAMES = Object.freeze({ BASE_SECTION, MODE_CONTEXT, SPEC_CONTEXT })

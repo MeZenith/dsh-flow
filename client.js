@@ -393,6 +393,19 @@ window.__ModuleLoader__.load({
 }
 .dsh-flow-iconbtn:disabled { color: var(--dsw-alias-label-dimmed); cursor: default; }
 
+.dsh-flow-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.dsh-flow-togglelabel { color: var(--dsw-alias-label-primary); font-size: 13px; }
+.dsh-flow-notice {
+  padding: 9px 11px;
+  border: 1px solid var(--dsw-alias-border-l);
+  border-left-width: 3px;
+  border-left-color: var(--dsw-alias-state-business-primary);
+  border-radius: var(--dsw-radius-sm);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
 .dsh-flow-hint { color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 16px; }
 .dsh-flow-error { color: var(--dsw-alias-state-error-primary); font-size: 12px; }
 .dsh-flow-empty {
@@ -1060,6 +1073,7 @@ window.__ModuleLoader__.load({
       const tabDefs = [
         { id: 'modes', label: t('tab.modes') },
         { id: 'prompts', label: t('tab.prompts') },
+        { id: 'gate', label: t('tab.gate') },
         { id: 'base', label: t('tab.base') },
       ]
 
@@ -1290,6 +1304,65 @@ window.__ModuleLoader__.load({
         ),
       )
 
+      /* ---------------- Tab 3：工作流与门禁 ---------------- */
+
+      const gateSpec = value && typeof value.spec === 'object' && value.spec !== null ? value.spec : {}
+      const gateBehavior = value && typeof value.behavior === 'object' && value.behavior !== null ? value.behavior : {}
+
+      /** 复选行：原生 checkbox 已由 `.dsh-flow-checkbox` 对齐主题色，无需自绘。 */
+      const checkboxRow = input => h('label', { className: 'dsh-flow-toggle' },
+        h('input', {
+          type: 'checkbox',
+          className: 'dsh-flow-checkbox',
+          checked: input.checked,
+          disabled,
+          onChange: event => { input.onChange(event.target.checked) },
+        }),
+        h('span', { className: 'dsh-flow-togglelabel' }, input.label),
+      )
+
+      const gatePanel = h('div', { className: 'dsh-flow-panelbody', role: 'tabpanel' },
+        h('div', { className: 'dsh-flow-field' },
+          checkboxRow({
+            label: t('gate.specEnabled'),
+            checked: gateSpec.enabled !== false,
+            onChange: next => { setField(['spec', 'enabled'], next) },
+          }),
+          h('span', { className: 'dsh-flow-hint' }, t('gate.specEnabledHint')),
+        ),
+        h('div', { className: 'dsh-flow-grid2' },
+          h('div', { className: 'dsh-flow-field' },
+            h('span', { className: 'dsh-flow-fieldlabel' }, t('gate.specPath')),
+            h(TextField, {
+              value: typeof gateSpec.path === 'string' ? gateSpec.path : '',
+              disabled,
+              placeholder: '.flow/spec.md',
+              onCommit: next => { setField(['spec', 'path'], next.trim()) },
+            }),
+          ),
+          h('div', { className: 'dsh-flow-field' },
+            h('span', { className: 'dsh-flow-fieldlabel' }, t('gate.specMaxChars')),
+            h(TextField, {
+              value: String(typeof gateSpec.maxChars === 'number' ? gateSpec.maxChars : 600),
+              disabled,
+              onCommit: (next) => {
+                const parsed = Number.parseInt(next, 10)
+                if (Number.isFinite(parsed) && parsed >= 80) setField(['spec', 'maxChars'], parsed)
+              },
+            }),
+          ),
+        ),
+        h('div', { className: 'dsh-flow-field' },
+          checkboxRow({
+            label: t('gate.autoCompact'),
+            checked: gateBehavior.autoCompactOnGate !== false,
+            onChange: next => { setField(['behavior', 'autoCompactOnGate'], next) },
+          }),
+          h('span', { className: 'dsh-flow-hint' }, t('gate.autoCompactHint')),
+        ),
+        h('div', { className: 'dsh-flow-notice' }, t('gate.remoteHint')),
+      )
+
       /* ---------------- 组装 ---------------- */
 
       return h('div', { className: 'dsh-flow-card' },
@@ -1305,6 +1378,7 @@ window.__ModuleLoader__.load({
           modeCard,
         ) : null,
         tab === 'prompts' ? promptsPanel : null,
+        tab === 'gate' ? gatePanel : null,
         tab === 'base' ? basePanel : null,
       )
     }
@@ -1330,9 +1404,17 @@ window.__ModuleLoader__.load({
       'settings.sectionBHint': '默认模型只在切换模式的那一刻应用一次；之后你在对话框里手动换模型都生效。',
       'tab.modes': '五大模式',
       'tab.prompts': '全局提示词',
+      'tab.gate': '工作流与门禁',
       'tab.base': '底座契约',
       'base.title': '底座契约',
       'base.hint': '固定注入在系统提示词最前部，不随模式变化；改动会影响所有模式。',
+      'gate.specEnabled': '启用 .flow/spec.md 方案锚点保活',
+      'gate.specEnabledHint': '开启后，方案摘要会作为必带上下文注入，压缩后由宿主自动重挂；插件只读该文件，不会自动创建。',
+      'gate.specPath': '方案文件路径',
+      'gate.specMaxChars': '摘要字符上限',
+      'gate.autoCompact': '阶段确认通过后自动压缩上下文',
+      'gate.autoCompactHint': '仅在你点「同意」、模式切换完成且本回合结束后触发一次原生压缩；遇到忙碌会自动重试。',
+      'gate.remoteHint': '远程审批提示：Flow 的开局四选一与阶段确认均走 DSH 原生提问框；若需通过 dsh-im 透传到微信 / 飞书，请确保当前会话已绑定开启双向同步的私聊。',
       'set.add': '新增提示词',
       'set.newName': '未命名提示词',
       'set.name': '名称',
@@ -1378,9 +1460,17 @@ window.__ModuleLoader__.load({
       'settings.sectionBHint': 'The default model is applied once, at switch time. Later manual model changes always win.',
       'tab.modes': 'Five modes',
       'tab.prompts': 'Global prompts',
+      'tab.gate': 'Workflow & gates',
       'tab.base': 'Base contract',
       'base.title': 'Base contract',
       'base.hint': 'Always injected at the top of the system prompt, independent of mode.',
+      'gate.specEnabled': 'Keep the .flow/spec.md anchor alive',
+      'gate.specEnabledHint': 'The spec summary is injected as required context and re-materialized by the host after compaction; the file is only read, never created.',
+      'gate.specPath': 'Spec file path',
+      'gate.specMaxChars': 'Summary character limit',
+      'gate.autoCompact': 'Compact context after a stage gate is approved',
+      'gate.autoCompactHint': 'Compacts once after your approval, the mode switch, and the end of this turn; retries while busy.',
+      'gate.remoteHint': 'Remote approval: both the opening route picker and the stage gate use the native question card. To forward them to WeChat / Feishu through dsh-im, bind this session to a two-way synced direct chat.',
       'set.add': 'Add prompt',
       'set.newName': 'Untitled prompt',
       'set.name': 'Name',

@@ -135,3 +135,30 @@ export function modeConfigOf(config, modeId) {
     prompt: typeof raw?.prompt === 'string' ? raw.prompt : '',
   }
 }
+
+/* ------------------------------------------------------------------ *
+ * S2 增量常量
+ * ------------------------------------------------------------------ */
+
+/**
+ * 工具名清单。
+ *
+ * 投影侧（`mode-projection.js`）要靠它校验 `tool/result.data.meta.flowTool`，
+ * 只有本插件自己的工具写下的 meta 才允许改动 `flowMode`。放在这里而不是工具模块里，
+ * 是为了让投影不依赖 `tools.js`（避免循环 import，也避免投影被工具模块的副作用牵连）。
+ */
+export const FLOW_TOOL_NAMES = Object.freeze(['flow_choose_route', 'flow_stage_gate'])
+
+/** `flow_stage_gate` 的 `fromStage` 白名单。 */
+export const STAGE_IDS = Object.freeze(['plan', 'plan-ultra', 'build', 'review'])
+
+/** `flow_stage_gate` 的 `nextMode` 白名单（不含 `flow`：总控模式不是切换目标）。 */
+export const GATE_NEXT_MODES = Object.freeze(['build', 'review', 'plan', 'off'])
+
+/** `flow_choose_route` 的 `recommended` 白名单（三选一路线）。 */
+export const ROUTE_CHOICES = Object.freeze(['plan', 'plan-ultra', 'build'])
+
+/** 规范化工具入参里的模式 token：仅用于 meta 折叠，非法一律 null。 */
+export function coerceModeToken(value) {
+  return parseModeArg(typeof value === 'string' ? value : '')
+}

@@ -1,21 +1,21 @@
 /**
- * `/flow` 命令：模式切换的唯一写入口。
+ * `/flow` 命令：模式切换的**人类入口**。
  *
  * 为什么走命令而不是自有 Remote：命令是原生通道（`SessionFace.command()` 已存在），
  * 且 `command/run` 是 log-only 事件 —— 既能让 `flowMode` 投影从日志派生，
  * 又不需要 Typert 构建期 codegen。代价是每次切换在对话里留一条命令行，
  * 与原生 `/permission` 芯片完全同构（后者同样走命令）。
  *
- * 事务边界（只在**切换的那一刻**执行一次，绝不常驻干预）：
- *   1. 默认模型（可选）→ `agent.model.select()`
- *   2. 权限档位 → 优先 preset，缺失则回退底层 append
- *   3. 提示词无需动作 —— 由 prompt-bridge 的动态 context 自动生效
+ * S2 起本命令不再自己实现切换事务：`switch-mode.js` 是命令与两个工具共用的唯一实现，
+ * 避免两套逻辑漂移。这里只负责解析参数、调用事务、组织回执。
  *
  * @module dsh-flow/commands
  */
 import {
-  MODE_OFF, approvalFor, modeConfigOf, parseModelKey, parseModeArg,
+  MODE_OFF, modeConfigOf, parseModeArg,
 } from './modes.js'
+import { applyModeSwitch } from './switch-mode.js'
+import { inspectSpec } from './spec-anchor.js'
 
 /** 命令名（不含斜杠）。 */
 export const COMMAND_NAME = 'flow'
@@ -28,54 +28,14 @@ const STATUS_TOKENS = new Set(['', 'status', 'list', '?'])
 
 /** 可选项提示串。 */
 function choicesText() {
-  return ['off', 'plan', 'plan-ultra', 'build', 'review', 'flow'].join(' / ')
+  return ['off', 'plan', 'plan-ultra', 'build', 'review', 'flow', 'spec', 'compact'].join(' / ')
 }
 
-/**
- * 解析默认模型并校验可用性。
- * @returns {Promise<{ ok: true, provider: string, model: string } | { ok: false, reason: string }>}
- */
-async function resolveModelTarget(ctx, key, signal) {
-  const target = parseModelKey(key)
-  if (target === null) return { ok: false, reason: '格式应为 provider::model' }
-
-  const llm = ctx.get('llm')
-  if (llm === undefined) return { ok: false, reason: '此组合没有 llm 服务' }
-
-  try {
-    await llm.resolveModelInfo(target.provider, target.model, signal)
-    return { ok: true, ...target }
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error)
-    return { ok: false, reason: `模型不可用（${detail}）` }
-  }
-}
-
-/**
- * 写入权限档位。
- *
- * 优先走 `permissionPresets.set()`：它会额外记录一条预设身份事件，与 `/permission`
- * 芯片完全一致。若该档位不是已配置的预设（例如默认表里没有 `read-only`），
- * 直接回退到底层写路径 —— 与 `setSandboxMode` / `setApprovalPolicy` 的实现逐字一致，
- * 因此不需要用户去改全局预设表。
- *
- * @returns {{ via: 'preset' | 'fallback' | 'skipped', error?: string }}
- */
-function applyPermission(ctx, agent, permission) {
-  if (permission === 'keep') return { via: 'skipped' }
-
-  const session = agent.session
-  const presets = ctx.get('permissionPresets')
-  const names = Array.isArray(presets?.names) ? presets.names : []
-  if (presets !== undefined && names.includes(permission)) {
-    presets.set(session, permission)
-    return { via: 'preset' }
-  }
-
-  // 底层回退：与 @deepseek-ai/dsh-sandbox-policy / dsh-user-approval 的写路径同形。
-  session.append('sandbox/mode', { mode: permission })
-  session.append('approval/policy', { policy: approvalFor(permission) })
-  return { via: 'fallback' }
+/** 字节数转人类可读。 */
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+  if (bytes < 1024) return `${bytes} B`
+  return `${(bytes / 1024).toFixed(1)} KB`
 }
 
 /**
@@ -84,79 +44,111 @@ function applyPermission(ctx, agent, permission) {
  *   ctx: import('@deepseek-ai/cordis').Context,
  *   getConfig: () => object,
  *   readMode: (session: object) => string,
+ *   bridge: { runNow: (agent: object, signal: AbortSignal) => Promise<object> },
  *   logger?: { warn: (msg: string) => void },
  * }} deps
  * @returns {object} 交给 `ctx.commands.register()` 的定义。
  */
-export function createFlowCommand({ ctx, getConfig, readMode, logger }) {
+export function createFlowCommand({ ctx, getConfig, readMode, bridge, logger }) {
+  /** 当前模式的回执文案。 */
+  function statusText(agent, config) {
+    const current = readMode(agent.session)
+    const label = current === MODE_OFF ? '普通模式（off）' : modeConfigOf(config, current).label
+    return `Flow 当前模式：${label}｜可选：${choicesText()}`
+  }
+
+  /** `/flow spec`：只看方案锚点状态，不读盘两次（inspectSpec 内部有缓存）。 */
+  function specText(agent, config) {
+    const spec = inspectSpec({ agent, config })
+    if (!spec.enabled) {
+      return `方案锚点已关闭（设置里 spec.enabled = false）。路径：${spec.display}`
+    }
+    if (!spec.exists) {
+      return `方案锚点：${spec.display} 尚未创建。需要时由你自己建立该文件，插件不会自动创建。`
+    }
+    const mark = spec.fromMarkedBlock ? '来自 <!-- flow:summary --> 摘要块' : '取自正文前段'
+    const preview = spec.summary.split('\n').slice(0, 6).join('\n')
+    return [
+      `方案锚点：${spec.display}（${formatBytes(spec.bytes)}），摘要${mark}：`,
+      preview,
+    ].join('\n')
+  }
+
   return {
     definitionId: COMMAND_ID,
     name: COMMAND_NAME,
-    description: '切换 Flow 工作流模式（off / plan / plan-ultra / build / review / flow）',
-    input: { hint: '<mode> | status' },
+    description: '切换 Flow 工作流模式（off / plan / plan-ultra / build / review / flow），或用 spec / compact 查看方案锚点与手动压缩',
+    input: { hint: '<mode> | status | spec | compact' },
     // 保留 args：`flowMode` 投影正是从 command/run 的 args 派生当前模式。
     recordInput: true,
 
     async handler({ agent, rawInput, signal }) {
       const config = getConfig()
       const arg = typeof rawInput === 'string' ? rawInput.trim().toLowerCase() : ''
+      const head = arg.split(/\s+/)[0] ?? ''
 
-      // ---- 只读分支：不改任何状态 ----
-      if (STATUS_TOKENS.has(arg.split(/\s+/)[0] ?? '')) {
-        const current = readMode(agent.session)
-        const label = current === MODE_OFF ? '普通模式（off）' : modeConfigOf(config, current).label
-        return { kind: 'success', text: `Flow 当前模式：${label}｜可选：${choicesText()}` }
+      // ---- 只读：查看方案锚点 ----
+      if (head === 'spec') return { kind: 'success', text: specText(agent, config) }
+
+      // ---- 动作：手动压缩 ----
+      if (head === 'compact') {
+        if (typeof bridge?.runNow !== 'function') {
+          return { kind: 'error', text: 'compaction 服务不可用，无法压缩。' }
+        }
+        // 命令不持有回合，天然处于 idle；`runNow` 内部仍会按错误码回报 busy。
+        const outcome = await bridge.runNow(agent, signal)
+        if (outcome.ok === true) {
+          const result = outcome.result
+          if (result === null || result === undefined) {
+            return { kind: 'success', text: '没有可压缩的历史。' }
+          }
+          const shadowed = Array.isArray(result.shadowedSeqs) ? result.shadowedSeqs.length : 0
+          const tokens = typeof result.shadowedTokenCount === 'number' ? result.shadowedTokenCount : 0
+          return {
+            kind: 'success',
+            text: `已压缩 ${shadowed} 条历史（约 ${tokens} tokens）。`,
+            ...(typeof result.summarySeq === 'number' ? { sourceEventSeq: result.summarySeq } : {}),
+          }
+        }
+        return { kind: 'error', text: outcome.text }
       }
 
-      // ---- 切换分支 ----
+      // ---- 只读：当前模式 ----
+      if (STATUS_TOKENS.has(head)) {
+        return { kind: 'success', text: statusText(agent, config) }
+      }
+
+      // ---- 切换 ----
       const target = parseModeArg(arg)
       if (target === null) {
         return {
           kind: 'error',
-          text: `未知模式 "${arg}"。可选：${choicesText()}`,
+          text: `未知参数 "${arg}"。可选：${choicesText()}`,
         }
       }
 
-      if (target === MODE_OFF) {
-        return { kind: 'success', text: '已关闭 Flow 模式提示词（权限与模型保持不变）' }
-      }
+      const applied = await applyModeSwitch({
+        ctx,
+        config,
+        agent,
+        modeId: target,
+        signal,
+        logger,
+      })
 
-      const mode = modeConfigOf(config, target)
-      const notes = []
-
-      // 1) 默认模型 —— 仅在配置了具体模型时切换一次。
-      if (mode.model !== '') {
-        const resolved = await resolveModelTarget(ctx, mode.model, signal)
-        if (resolved.ok) {
-          try {
-            agent.model.select({ provider: resolved.provider, model: resolved.model })
-            notes.push(`模型 ${resolved.provider}::${resolved.model}`)
-          } catch (error) {
-            notes.push(`模型切换失败：${error instanceof Error ? error.message : String(error)}`)
-          }
-        } else {
-          notes.push(`未切换模型：${resolved.reason}`)
-        }
-      }
-
-      // 2) 权限档位。
-      try {
-        const applied = applyPermission(ctx, agent, mode.permission)
-        if (applied.via === 'preset') notes.push(`权限 ${mode.permission}`)
-        else if (applied.via === 'fallback') notes.push(`权限 ${mode.permission}（底层写入）`)
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error)
-        logger?.warn(`flow: 权限切换失败 ${detail}`)
-        notes.push(`权限切换失败：${detail}`)
-      }
-
-      const detail = notes.length === 0 ? '' : `（${notes.join('｜')}）`
+      const detail = applied.notes.length === 0 ? '' : `（${applied.notes.join('｜')}）`
       const announce = config?.behavior?.announce !== false
+      if (target === MODE_OFF) {
+        return {
+          kind: 'success',
+          text: announce
+            ? `已关闭 Flow 模式提示词${detail}（权限与模型保持不变）`
+            : '已关闭 Flow 模式提示词（权限与模型保持不变）',
+        }
+      }
       return {
         kind: 'success',
-        text: announce
-          ? `Flow 模式：${mode.label}${detail}`
-          : `Flow 模式：${mode.label}`,
+        text: announce ? `Flow 模式：${applied.label}${detail}` : `Flow 模式：${applied.label}`,
       }
     },
   }

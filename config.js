@@ -14,6 +14,7 @@
 import z from './vendor/schemastery.mjs'
 import { isVolatile } from './vendor/cosmokit.mjs'
 import { MODE_IDS, MODE_PRESETS, PERMISSION_CHOICES } from './modes.js'
+import { DEFAULT_SPEC_PATH } from './spec-anchor.js'
 
 /* ------------------------------------------------------------------ *
  * 底座契约：固定放 systemPrompt.section()，不随模式变化，永不变动。
@@ -57,12 +58,14 @@ export const DEFAULT_MODE_PROMPTS = Object.freeze({
   plan: `[当前模式：Plan（只读规划）]
 1. 严禁修改、新建或删除任何代码文件，仅允许只读调研与方案设计。
 2. 先读取相关代码理清上下文，再给出清晰可落地的修改方案：明确涉及的文件路径、核心改动点、边界风险与验证方式。
-3. 方案输出完毕后立即停下，等待用户确认或提出修改意见，绝不擅自推进编码。`,
+3. 方案输出完毕后立即停下，等待用户确认或提出修改意见，绝不擅自推进编码。
+4. 方案定稿后先把它写入 \`.flow/spec.md\`（正文开头用 \`<!-- flow:summary -->\` 与 \`<!-- /flow:summary -->\` 包住 3~6 行核心摘要），再调用 \`flow_stage_gate\`（\`fromStage='plan'\`、\`nextMode='build'\`、\`specUpdated=true\`）请用户拍板；用户明确同意前绝不进入编码。`,
 
   'plan-ultra': `[当前模式：Plan Ultra（深度多维规划）]
 1. 严禁修改、新建或删除任何代码文件，必须彻底盘透复杂需求。
 2. 禁止拍脑门给浅层方案。涉及状态流转、异步链路、多文件协作时，优先利用只读调研（或并行只读子代理）从三个维度交叉核查：① 架构与调用链影响面；② 空值、竞态、异常兜底与安全边界；③ 可维护性与回滚成本。
-3. 发现需求存在模糊点或隐性冲突时，主动列出关键决策点向用户提问，通过多轮对齐打磨出无遗漏的终版方案；在用户明确拍板确认前，绝不进入实施阶段。`,
+3. 发现需求存在模糊点或隐性冲突时，主动列出关键决策点向用户提问，通过多轮对齐打磨出无遗漏的终版方案；在用户明确拍板确认前，绝不进入实施阶段。
+4. 终版方案必须落盘到 \`.flow/spec.md\`（正文开头用 \`<!-- flow:summary -->\` 与 \`<!-- /flow:summary -->\` 包住 3~6 行核心摘要），随后调用 \`flow_stage_gate\`（\`fromStage='plan-ultra'\`、\`nextMode='build'\`、\`specUpdated=true\`）请用户拍板。`,
 
   build: `[当前模式：Build（代码实施）]
 1. 严格按照双方已确认的方案精准落地代码，不做未经同意的大范围无关重构。
@@ -76,9 +79,10 @@ export const DEFAULT_MODE_PROMPTS = Object.freeze({
 
   flow: `[当前模式：Flow（全能工作流总控）]
 你是当前任务的流程总控官，负责在规划、实施与审查阶段间把控节奏：
-1. 收到新需求时，绝不闷头直接改代码；先简要判断任务复杂度，给出推荐路线（轻量用 Plan、复杂用 Plan Ultra、明确小改动可直接 Build），待用户选定路线后再行动。
-2. 任何大阶段切换前（特别是从方案设计切入代码编写前），必须先汇总当前阶段结论并等待用户明确同意，严禁跳过确认自行推进。
-3. 每个阶段收尾时给出一句极简进度总结（已完成项、关键改动与下一步建议）。`,
+1. 收到新需求时，绝不闷头直接改代码；先简要判断任务复杂度，然后调用 \`flow_choose_route\`（给出 \`recommended\` / \`reason\` / \`taskSummary\`）把路线选择交给用户，待用户选定后按返回结果行动。
+2. 任何大阶段切换前（特别是从方案设计切入代码编写前），必须先汇总当前阶段结论并调用 \`flow_stage_gate\` 请用户明确同意，严禁跳过确认自行推进。
+3. 每个阶段收尾时给出一句极简进度总结（已完成项、关键改动与下一步建议）。
+4. 规划定稿后先写入 \`.flow/spec.md\`（带 \`<!-- flow:summary -->\` 摘要块），再走阶段门禁；用户点头前严禁自行切入 Build。`,
 })
 
 /* ------------------------------------------------------------------ *
@@ -154,10 +158,16 @@ export const Config = z.object({
     review: modeSchema('review'),
     flow: modeSchema('flow'),
   }).default(MODE_DEFAULTS).volatile(),
+  spec: z.object({
+    enabled: z.boolean().default(true),
+    path: z.string().default('.flow/spec.md'),
+    maxChars: z.number().default(600),
+  }).default({ enabled: true, path: '.flow/spec.md', maxChars: 600 }).volatile(),
   behavior: z.object({
     announce: z.boolean().default(true),
     allowWhileRunning: z.boolean().default(true),
-  }).default({ announce: true, allowWhileRunning: true }).volatile(),
+    autoCompactOnGate: z.boolean().default(true),
+  }).default({ announce: true, allowWhileRunning: true, autoCompactOnGate: true }).volatile(),
 })
 
 /**
@@ -182,6 +192,7 @@ export function plainConfigOf(raw) {
     baseRules: read(raw?.baseRules, ''),
     promptSets: read(raw?.promptSets, []),
     modes: read(raw?.modes, {}),
+    spec: read(raw?.spec, { enabled: true, path: DEFAULT_SPEC_PATH, maxChars: 600 }),
     behavior: read(raw?.behavior, {}),
   }
 }

@@ -14,7 +14,7 @@
  *
  * @module dsh-flow/mode-projection
  */
-import { MODE_CHOICES, MODE_OFF, parseModeArg } from './modes.js'
+import { FLOW_TOOL_NAMES, MODE_CHOICES, MODE_OFF, parseModeArg } from './modes.js'
 
 /** 投影 key；Client 侧以同一字符串调用 `useProjection('flowMode')`。 */
 export const PROJECTION_KEY = 'flowMode'
@@ -36,6 +36,36 @@ function parseState(value) {
   return initialModeState()
 }
 
+/** 事件时间戳，统一收口（缺字段时沿用上一个值，避免 `at` 抖动）。 */
+function atOf(event, state) {
+  return typeof event.time === 'number' && Number.isFinite(event.time) ? event.time : state.at
+}
+
+/**
+ * 从 `tool/result` 折叠出模式切换。
+ *
+ * 为什么能这么做：`tool/result` 的 `data` 不含工具名，但含工具私有的 `meta`
+ * （`core/tools/src/batch.ts:260` 把 `output.presentationMeta()` 的返回值写进去，
+ * `Session.append` 校验其可序列化）。本插件的两个工具在 meta 里写
+ * `{ flowTool, flowMode }`，因此这里能精确定位到"是谁切了什么模式"，
+ * 既不需要解析模型可见文本，也不需要自造 session event。
+ *
+ * @param {{ mode: string, at: number }} state
+ * @param {object} event
+ */
+function applyToolResult(state, event) {
+  const data = event.data
+  if (data === null || typeof data !== 'object') return state
+  const meta = data.meta
+  if (meta === null || typeof meta !== 'object') return state
+  if (!FLOW_TOOL_NAMES.includes(meta.flowTool)) return state
+
+  const mode = parseModeArg(typeof meta.flowMode === 'string' ? meta.flowMode : '')
+  if (mode === null) return state
+  if (state.mode === mode) return state
+  return { mode, at: atOf(event, state) }
+}
+
 /**
  * 一个事件的模式折叠。无关事件返回原引用。
  * @param {{ mode: string, at: number }} state
@@ -44,18 +74,24 @@ function parseState(value) {
  */
 export function applyModeEvent(state, event) {
   if (event === null || typeof event !== 'object') return state
-  if (event.type !== 'command/run') return state
-  const data = event.data
-  if (data === null || typeof data !== 'object') return state
-  if (data.name !== 'flow') return state
 
-  // 只认合法模式；`status` / `list` / 拼写错误一律忽略（不改变当前模式）。
-  const mode = parseModeArg(typeof data.args === 'string' ? data.args : '')
-  if (mode === null) return state
-  if (state.mode === mode) return state
+  // 入口一：`/flow <mode>` 命令。
+  if (event.type === 'command/run') {
+    const data = event.data
+    if (data === null || typeof data !== 'object') return state
+    if (data.name !== 'flow') return state
 
-  const at = typeof event.time === 'number' && Number.isFinite(event.time) ? event.time : state.at
-  return { mode, at }
+    // 只认合法模式；`status` / `list` / 拼写错误一律忽略（不改变当前模式）。
+    const mode = parseModeArg(typeof data.args === 'string' ? data.args : '')
+    if (mode === null) return state
+    if (state.mode === mode) return state
+    return { mode, at: atOf(event, state) }
+  }
+
+  // 入口二：工具内切换（flow_choose_route / flow_stage_gate 的成功结果）。
+  if (event.type === 'tool/result') return applyToolResult(state, event)
+
+  return state
 }
 
 /**

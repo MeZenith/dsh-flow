@@ -1,6 +1,6 @@
 {
   "name": "dsh-flow",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "Flow 工作流与提示词管家：五大快捷模式、分层提示词注入、模式默认模型。",
   "icon": "./icon.svg",
@@ -28,6 +28,10 @@
     "mode-plan.js",
     "mode-projection.js",
     "prompt-bridge.js",
+    "switch-mode.js",
+    "spec-anchor.js",
+    "compact-bridge.js",
+    "tools.js",
     "commands.js",
     "client.js",
     "cordis.patch.yml",
