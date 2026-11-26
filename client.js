@@ -1515,30 +1515,63 @@ window.__ModuleLoader__.load({
 
       /* ---------------- Tab 3：底座契约 ---------------- */
 
+      /** 底座契约编辑草稿：与配置覆盖、磁盘原文联动，避免清空后出现空白。 */
+      const [baseDraft, setBaseDraft] = useState('')
+
+      useEffect(() => {
+        const override = typeof value?.baseRules === 'string' ? value.baseRules : ''
+        if (override !== '') {
+          setBaseDraft(override)
+          return
+        }
+        const fromFile = promptData?.base?.fileContent ?? ''
+        setBaseDraft(fromFile !== '' ? fromFile : (promptData?.base?.content ?? ''))
+      }, [value?.baseRules, promptData])
+
+      const baseOverrideActive = typeof value?.baseRules === 'string' && value.baseRules !== ''
+      const baseSourceLabel = baseOverrideActive
+        ? t('base.sourceOverride')
+        : (promptData?.base?.source === 'file' ? t('base.sourceFile') : t('common.builtin'))
+
       const basePanel = h('div', { className: 'dsh-flow-panelbody' },
         h('div', { className: 'dsh-flow-field' },
           h('div', { className: 'dsh-flow-fieldhead' },
             h('span', { className: 'dsh-flow-fieldlabel' }, t('base.title')),
+            h('span', { className: 'dsh-flow-hint' }, baseSourceLabel),
+            h('button', {
+              type: 'button',
+              className: 'dsh-flow-btn',
+              disabled: disabled || busy === 'base',
+              onClick: () => {
+                void runBusy('base', async () => {
+                  setField(['baseRules'], baseDraft)
+                  setFeedback({ kind: 'ok', text: t('lib.saved') })
+                })
+              },
+            }, busy === 'base' ? t('lib.saving') : t('common.save')),
             h('button', {
               type: 'button',
               className: 'dsh-flow-btn',
               disabled,
-              onClick: () => { unsetField(['baseRules']) },
+              onClick: () => {
+                // 清空配置覆盖后立刻回显磁盘原文，并重新拉取一次以刷新来源标签。
+                unsetField(['baseRules'])
+                const fromFile = promptData?.base?.fileContent ?? ''
+                if (fromFile !== '') setBaseDraft(fromFile)
+                refreshPrompts()
+                setFeedback({ kind: 'ok', text: t('lib.reset') })
+              },
             }, t('common.reset')),
           ),
           h(TextField, {
-            value: typeof value.baseRules === 'string' && value.baseRules !== ''
-              ? value.baseRules
-              : (promptData?.base?.content ?? ''),
+            value: baseDraft,
             multiline: true,
             rows: 14,
             disabled,
-            onCommit: next => { setField(['baseRules'], next) },
+            onCommit: next => { setBaseDraft(next) },
           }),
           h('span', { className: 'dsh-flow-hint' },
-            typeof value.baseRules === 'string' && value.baseRules !== ''
-              ? t('common.custom')
-              : t('common.builtin')),
+            baseOverrideActive ? t('base.hintOverride') : t('base.hintFile')),
         ),
       )
 
@@ -2447,6 +2480,10 @@ window.__ModuleLoader__.load({
       'archive': '定稿/完结策略',
       'base.title': '底座契约',
       'base.hint': '固定注入在系统提示词最前部，不随模式变化；改动会影响所有模式。',
+      'base.sourceFile': '文件',
+      'base.sourceOverride': '自定义覆盖',
+      'base.hintFile': '当前读取 prompts/base.md，修改后点击保存即写入自定义覆盖。',
+      'base.hintOverride': '当前使用自定义覆盖，官方更新不会改动它；恢复默认可回到文件版本。',
       'gate.specEnabled': '启用 .flow/spec.md 方案锚点保活',
       'gate.specEnabledHint': '开启后，方案摘要会作为必带上下文注入，压缩后由宿主自动重挂；插件只读该文件，不会自动创建。',
       'gate.specPath': '方案文件路径',
@@ -2625,6 +2662,10 @@ window.__ModuleLoader__.load({
       'archive': 'Finalization strategy',
       'base.title': 'Base contract',
       'base.hint': 'Always injected at the top of the system prompt, independent of mode.',
+      'base.sourceFile': 'File',
+      'base.sourceOverride': 'Custom override',
+      'base.hintFile': 'Reading prompts/base.md; save to store a custom override.',
+      'base.hintOverride': 'A custom override is active; official updates never touch it. Reset to fall back to the file.',
       'gate.specEnabled': 'Keep the .flow/spec.md anchor alive',
       'gate.specEnabledHint': 'The spec summary is injected as required context and re-materialized by the host after compaction; the file is only read, never created.',
       'gate.specPath': 'Spec file path',

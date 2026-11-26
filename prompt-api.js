@@ -92,7 +92,13 @@ export function createPromptApi({ store, update }) {
       root: store.root,
       officialDir: store.officialDir,
       customDir: store.customDir,
-      base: { source: base.source, path: base.path, content: base.text },
+      base: {
+        source: base.source,
+        path: base.path,
+        content: base.text,
+        // 磁盘原文：即使配置覆盖生效，也把 base.md 一并返回，供设置页「恢复默认」立即回显。
+        fileContent: store.baseFile(),
+      },
       modes,
       roster: { content: roster.content, source: roster.source, hasCustom: roster.hasCustom, path: roster.path },
       subagents: store.listSubagents().map(item => ({

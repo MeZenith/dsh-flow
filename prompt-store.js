@@ -134,6 +134,16 @@ export function createPromptStore({ getConfig, logger, root = PROMPT_ROOT }) {
     return resolve('base', 'base', join(root, 'base.md'), config?.baseRules, BASE_RULES)
   }
 
+  /**
+   * 直接读取磁盘上的 `base.md` 原文，供设置页在无覆盖时回显。
+   *
+   * 与 `base()` 的区别：这里跳过配置覆盖，只看文件，读不到返回空串。
+   */
+  function baseFile() {
+    const text = readCached(join(root, 'base.md'))
+    return typeof text === 'string' ? text : ''
+  }
+
   /** 某个模式的专属提示词。 */
   function mode(modeId) {
     if (!isPromptMode(modeId)) {
@@ -366,6 +376,7 @@ export function createPromptStore({ getConfig, logger, root = PROMPT_ROOT }) {
     officialDir: OFFICIAL_DIR,
     customDir: CUSTOM_DIR,
     base,
+    baseFile,
     mode,
     subagent,
     roster,

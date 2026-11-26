@@ -5,7 +5,7 @@
 ## 执行方式
 
 1. 先按 `plan.md` 完成第 1 步（需求深挖与边界对齐），把需求冻结成一段可引用的描述。
-2. 读花名册（`subagents/README.md`），按需挑选 2–4 位专家分工，例如：
+2. 以系统注入的**子代理目录**为依据，按需挑选 2–4 位专家分工；读取正文时一律使用目录中给出的实际生效路径（覆盖版在 `custom/subagents/`，不要自行拼 `prompts/subagents/<id>.md`），例如：
    - 产品与轮子侦察 → `product-scout`
    - 交互与界面 → `ui-architect`
    - 并发、竞态、隐私 → `security-auditor`

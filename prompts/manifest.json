@@ -1,22 +1,22 @@
 {
   "version": "0.4.0",
-  "updatedAt": "2026-11-25T13:51:32.189Z",
+  "updatedAt": "2026-11-26T01:18:43.256Z",
   "files": [
     {
       "path": "base.md",
-      "sha256": "26e9e4f265566992741ebce8177d86c56457a45626cb25e42915635c7e227b1d"
+      "sha256": "d47a8ff131c16cc74ade95a25c7ade5c99349c3c5838f6005926420cb1eb05aa"
     },
     {
       "path": "modes/build.md",
-      "sha256": "b40fcc5033af6e7c44a1cf5df5757316f322f889d917888346a1f59aada5b7a2"
+      "sha256": "c1d534af20e1be9254eab7bdce4cd9f0c495c6cc7ce4703f89f0fead3051cea5"
     },
     {
       "path": "modes/flow.md",
-      "sha256": "f78dd1ab931d9dba3becb527ee2caa3ff5cc31476505fd4a9a609e6b55b82c5b"
+      "sha256": "4bdac96a5d65b697e4eaeefb580b60169b2a6e7042560d0bc1899a11b32e331a"
     },
     {
       "path": "modes/plan-ultra.md",
-      "sha256": "f566ded2fe2d118c0632a34315c806849e42aa4f684b3ecc1800c17715f8a95a"
+      "sha256": "09152b3124e88923de0374c6e6a4fae7615514f9a687679eff742c3313d045cf"
     },
     {
       "path": "modes/plan.md",
