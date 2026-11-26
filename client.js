@@ -1077,9 +1077,15 @@ window.__ModuleLoader__.load({
       const [sourceOpen, setSourceOpen] = useState(false)
       const [rosterOpen, setRosterOpen] = useState(false)
       const [rosterDraft, setRosterDraft] = useState('')
-      const [activeAgent, setActiveAgent] = useState('')
-      const [agentDraft, setAgentDraft] = useState('')
+      /** 子代理纵向列表：按 id 独立控制展开状态，默认全部收起。 */
+      const [expandedAgents, setExpandedAgents] = useState({})
+      /** 子代理正文草稿：按 id 独立保存，互不覆盖。 */
+      const [agentDrafts, setAgentDrafts] = useState({})
       const [newAgentId, setNewAgentId] = useState('')
+      /** 新建子代理时的职责简介（写入首行 `# id | 简介`）。 */
+      const [newAgentSummary, setNewAgentSummary] = useState('')
+      /** 删除二段确认：记录当前待确认的子代理 id，3 秒后自动复位。 */
+      const [confirmDeleteId, setConfirmDeleteId] = useState('')
       const [creating, setCreating] = useState(false)
       const [busy, setBusy] = useState('')
       const [feedback, setFeedback] = useState(null)
@@ -1104,21 +1110,25 @@ window.__ModuleLoader__.load({
         return () => { alive = false }
       }, [reloadToken])
 
-      /** 数据到达或切换子代理时，同步草稿与默认选中项。 */
-      useEffect(() => {
+      /** 数据到达后同步草稿：按 id 逐条填充，仅覆盖已失效的条目。 */      useEffect(() => {
         if (promptData === null) return
         setRosterDraft(promptData.roster?.content ?? '')
-        const list = promptData.subagents ?? []
-        if (list.length === 0) {
-          setActiveAgent('')
-          setAgentDraft('')
-          return
-        }
-        if (!list.some(item => item.id === activeAgent)) {
-          setActiveAgent(list[0].id)
-          setAgentDraft(list[0].content ?? '')
-        }
-      }, [promptData, activeAgent])
+        const list = Array.isArray(promptData.subagents) ? promptData.subagents : []
+        setAgentDrafts((prev) => {
+          const next = {}
+          for (const item of list) {
+            next[item.id] = typeof prev[item.id] === 'string' ? prev[item.id] : (item.content ?? '')
+          }
+          return next
+        })
+      }, [promptData])
+
+      /** 删除二段确认：3 秒内未再次点击即自动复位，避免误删。 */
+      useEffect(() => {
+        if (confirmDeleteId === '') return undefined
+        const timer = setTimeout(() => { setConfirmDeleteId('') }, 3000)
+        return () => { clearTimeout(timer) }
+      }, [confirmDeleteId])
 
       useEffect(() => {
         let alive = true
@@ -1566,9 +1576,7 @@ window.__ModuleLoader__.load({
         }
       }
 
-      const activeAgentItem = Array.isArray(promptData?.subagents)
-        ? promptData.subagents.find(item => item.id === activeAgent)
-        : undefined
+      const agentList = Array.isArray(promptData?.subagents) ? promptData.subagents : []
 
       /** 子代理状态标签。 */
       const agentBadge = (item) => {
@@ -1718,48 +1726,177 @@ window.__ModuleLoader__.load({
           : null,
       )
 
-      /** 新增子代理行：输入英文 ID 后创建模板。 */
+      /** 新增子代理行：同时填写 ID 与职责简介，首行生成 `# id | 简介`。 */
       const newAgentRow = creating
-        ? h('div', { style: { display: 'flex', gap: '8px', alignItems: 'flex-end' } },
-          h('div', { className: 'dsh-flow-field', style: { flex: '1 1 auto' } },
-            h(TextField, {
-              value: newAgentId,
-              disabled,
-              placeholder: t('lib.newAgentPlaceholder'),
-              onCommit: next => { setNewAgentId(next.trim()) },
-            }),
+        ? h('div', { style: { display: 'grid', gap: '8px' } },
+          h('div', { style: { display: 'flex', gap: '8px', alignItems: 'flex-end', flexWrap: 'wrap' } },
+            h('div', { className: 'dsh-flow-field', style: { flex: '1 1 180px' } },
+              h('span', { className: 'dsh-flow-fieldlabel' }, t('lib.agentIdLabel')),
+              h(TextField, {
+                value: newAgentId,
+                disabled,
+                placeholder: t('lib.newAgentPlaceholder'),
+                onCommit: next => { setNewAgentId(next.trim()) },
+              }),
+            ),
+            h('div', { className: 'dsh-flow-field', style: { flex: '2 1 260px' } },
+              h('span', { className: 'dsh-flow-fieldlabel' }, t('lib.agentSummaryLabel')),
+              h(TextField, {
+                value: newAgentSummary,
+                disabled,
+                placeholder: t('lib.agentSummaryPlaceholder'),
+                onCommit: next => { setNewAgentSummary(next.trim()) },
+              }),
+            ),
           ),
-          h('button', {
-            type: 'button',
-            className: 'dsh-flow-btn',
-            disabled: disabled || busy === 'create',
-            onClick: () => {
-              const id = newAgentId.trim()
-              if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(id)) {
-                setFeedback({ kind: 'error', text: t('lib.badId') })
-                return
-              }
-              void runBusy('create', async () => {
-                await apiCall('PUT', `/api/dsh-flow/subagents/${encodeURIComponent(id)}`, {
-                  content: `# ${id}\n\n## 身份\n\n你是执行子代理，向总控返回结构化回执。\n\n## 文件边界\n\n（填写可修改的范围）\n\n## 工作方法\n\n1. （填写步骤）\n\n## 输出格式\n\n（填写回执结构）\n`,
-                })
-                setFeedback({ kind: 'ok', text: t('lib.created').replace('{id}', id) })
-                setNewAgentId('')
-                setCreating(false)
-                setActiveAgent(id)
+          h('div', { style: { display: 'flex', gap: '8px' } },
+            h('button', {
+              type: 'button',
+              className: 'dsh-flow-btn',
+              disabled: disabled || busy === 'create',
+              onClick: () => {
+                const id = newAgentId.trim()
+                const summary = newAgentSummary.trim()
+                if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(id)) {
+                  setFeedback({ kind: 'error', text: t('lib.badId') })
+                  return
+                }
+                const heading = summary === '' ? `# ${id}` : `# ${id} | ${summary}`
+                void runBusy('create', async () => {
+                  await apiCall('PUT', `/api/dsh-flow/subagents/${encodeURIComponent(id)}`, {
+                    content: `${heading}\n\n## 身份\n\n你是执行子代理，向总控返回结构化回执。\n\n## 文件边界\n\n（填写可修改的范围）\n\n## 工作方法\n\n1. （填写步骤）\n\n## 输出格式\n\n（填写回执结构）\n`,
+                  })
+                  setFeedback({ kind: 'ok', text: t('lib.created').replace('{id}', id) })
+                  setNewAgentId('')
+                  setNewAgentSummary('')
+                  setCreating(false)
+                // 新建成功后直接展开该行，便于立刻编辑。
+                setExpandedAgents(prev => ({ ...prev, [id]: true }))
                 refreshPrompts()
+                // 数据刷新后把该行滚入视野（元素由 data-agent-id 标识）。
+                setTimeout(() => {
+                  const row = document.querySelector(`[data-agent-id="${id}"]`)
+                  if (row !== null) row.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+                }, 400)
               })
             },
           }, t('lib.create')),
-          h('button', { type: 'button', className: 'dsh-flow-btn', onClick: () => { setCreating(false); setNewAgentId('') } }, t('lib.cancel')),
+            h('button', {
+              type: 'button',
+              className: 'dsh-flow-btn',
+              onClick: () => { setCreating(false); setNewAgentId(''); setNewAgentSummary('') },
+            }, t('lib.cancel')),
+          ),
         )
         : null
 
-      /** 子代理提示词卡片：胶囊切换 + 正文编辑 + 保存/恢复默认/删除。 */
+      /** 子代理行简介：去掉头部重复的 id，只保留职责描述。 */
+      const briefOf = (item) => {
+        const id = String(item?.id ?? '')
+        let text = String(item?.title ?? '').trim()
+        if (id !== '' && text.toLowerCase().startsWith(id.toLowerCase())) text = text.slice(id.length)
+        return text.replace(/^[\s|｜:：,，;；\-—]+/, '').trim()
+      }
+
+      /** 切换某一行的展开状态。 */
+      const toggleAgent = (id) => {
+        setExpandedAgents(prev => ({ ...prev, [id]: prev[id] !== true }))
+      }
+
+      /** 单个子代理行：折叠态与展开态共用同一行头部。 */
+      const agentRowOf = (item) => {
+        const isOpen = expandedAgents[item.id] === true
+        const draft = typeof agentDrafts[item.id] === 'string' ? agentDrafts[item.id] : (item.content ?? '')
+        const brief = briefOf(item)
+        return h('div', { className: 'dsh-flow-item', key: item.id, 'data-agent-id': item.id },
+          h('div', {
+            className: 'dsh-flow-itemrow',
+            style: { cursor: 'pointer' },
+            onClick: () => { toggleAgent(item.id) },
+          },
+            h('span', { className: 'dsh-flow-itemname', title: item.id }, item.id),
+            h('div', { className: 'dsh-flow-itemtags' },
+              brief === '' ? null : h('span', { className: 'dsh-flow-tag' }, brief),
+              h('span', { className: 'dsh-flow-tag' }, agentBadge(item)),
+            ),
+            h('div', { className: 'dsh-flow-itemactions' },
+              h('button', {
+                type: 'button',
+                className: 'dsh-flow-iconbtn',
+                'aria-expanded': isOpen ? 'true' : 'false',
+                'aria-label': isOpen ? t('lib.collapse') : t('lib.expandEdit'),
+                title: isOpen ? t('lib.collapse') : t('lib.expandEdit'),
+                onClick: (event) => { event.stopPropagation(); toggleAgent(item.id) },
+              }, isOpen ? '▴' : '▾'),
+            ),
+          ),
+          isOpen
+            ? h('div', { style: { display: 'grid', gap: '8px', paddingTop: '6px' } },
+              h(TextField, {
+                value: draft,
+                multiline: true,
+                rows: 14,
+                disabled,
+                onCommit: next => { setAgentDrafts(prev => ({ ...prev, [item.id]: next })) },
+              }),
+              h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+                h('button', {
+                  type: 'button',
+                  className: 'dsh-flow-btn',
+                  disabled: disabled || busy === `agent:${item.id}`,
+                  onClick: () => {
+                    const content = typeof agentDrafts[item.id] === 'string' ? agentDrafts[item.id] : draft
+                    void runBusy(`agent:${item.id}`, async () => {
+                      await apiCall('PUT', `/api/dsh-flow/subagents/${encodeURIComponent(item.id)}`, { content })
+                      setFeedback({ kind: 'ok', text: t('lib.saved') })
+                      refreshPrompts()
+                    })
+                  },
+                }, busy === `agent:${item.id}` ? t('lib.saving') : t('common.save')),
+                item.kind === 'official'
+                  ? h('button', {
+                    type: 'button',
+                    className: 'dsh-flow-btn',
+                    disabled: disabled || busy === `agent:${item.id}` || item.overridden !== true,
+                    onClick: () => {
+                      void runBusy(`agent:${item.id}`, async () => {
+                        await apiCall('DELETE', `/api/dsh-flow/subagents/${encodeURIComponent(item.id)}`)
+                        setFeedback({ kind: 'ok', text: t('lib.reset') })
+                        refreshPrompts()
+                      })
+                    },
+                  }, t('common.reset'))
+                  : h('button', {
+                    type: 'button',
+                    className: 'dsh-flow-btn',
+                    disabled: disabled || busy === `agent:${item.id}`,
+                    // 二段确认：首次点击只切换到「确认删除？」，3 秒内再点才真正删除。
+                    onClick: () => {
+                      if (confirmDeleteId !== item.id) {
+                        setConfirmDeleteId(item.id)
+                        return
+                      }
+                      setConfirmDeleteId('')
+                      void runBusy(`agent:${item.id}`, async () => {
+                        await apiCall('DELETE', `/api/dsh-flow/subagents/${encodeURIComponent(item.id)}`)
+                        setFeedback({ kind: 'ok', text: t('lib.deleted') })
+                        setExpandedAgents(prev => ({ ...prev, [item.id]: false }))
+                        refreshPrompts()
+                      })
+                    },
+                  }, confirmDeleteId === item.id ? t('lib.confirmDelete') : t('common.delete')),
+              ),
+              h('span', { className: 'dsh-flow-hint' },
+                t('lib.effectivePath').replace('{path}', String(item.resolvedPath ?? ''))),
+            )
+            : null,
+        )
+      }
+
+      /** 子代理提示词卡片：纵向手风琴列表，逐行独立展开。 */
       const agentsCard = h('div', { className: 'dsh-flow-modecard' },
         h('div', { className: 'dsh-flow-fieldhead' },
           h('span', { className: 'dsh-flow-fieldlabel' }, t('lib.agentTitle')),
-          h('span', { className: 'dsh-flow-hint' }, agentBadge(activeAgentItem)),
           h('button', {
             type: 'button',
             className: 'dsh-flow-btn',
@@ -1768,77 +1905,9 @@ window.__ModuleLoader__.load({
           }, t('lib.newAgent')),
         ),
         newAgentRow,
-        (promptData?.subagents ?? []).length === 0
+        agentList.length === 0
           ? h('span', { className: 'dsh-flow-hint' }, t('lib.noAgents'))
-          : h('div', { className: 'dsh-flow-pills' },
-            (promptData?.subagents ?? []).map(item => h('button', {
-              key: item.id,
-              type: 'button',
-              className: 'dsh-flow-pill',
-              'data-active': activeAgent === item.id ? 'true' : 'false',
-              'aria-pressed': activeAgent === item.id ? 'true' : 'false',
-              onClick: () => {
-                setActiveAgent(item.id)
-                setAgentDraft(item.content ?? '')
-              },
-            }, item.id)),
-        ),
-        activeAgentItem === undefined
-          ? null
-          : h('div', { style: { display: 'grid', gap: '8px' } },
-            h(TextField, {
-              value: agentDraft,
-              multiline: true,
-              rows: 14,
-              disabled,
-              onCommit: next => { setAgentDraft(next) },
-            }),
-            h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
-              h('button', {
-                type: 'button',
-                className: 'dsh-flow-btn',
-                disabled: disabled || busy === 'agent',
-                onClick: () => {
-                  const id = activeAgentItem.id
-                  void runBusy('agent', async () => {
-                    await apiCall('PUT', `/api/dsh-flow/subagents/${encodeURIComponent(id)}`, { content: agentDraft })
-                    setFeedback({ kind: 'ok', text: t('lib.saved') })
-                    refreshPrompts()
-                  })
-                },
-              }, busy === 'agent' ? t('lib.saving') : t('common.save')),
-              activeAgentItem.kind === 'official'
-                ? h('button', {
-                  type: 'button',
-                  className: 'dsh-flow-btn',
-                  disabled: disabled || busy === 'agent' || activeAgentItem.overridden !== true,
-                  onClick: () => {
-                    const id = activeAgentItem.id
-                    void runBusy('agent', async () => {
-                      await apiCall('DELETE', `/api/dsh-flow/subagents/${encodeURIComponent(id)}`)
-                      setFeedback({ kind: 'ok', text: t('lib.reset') })
-                      refreshPrompts()
-                    })
-                  },
-                }, t('common.reset'))
-                : h('button', {
-                  type: 'button',
-                  className: 'dsh-flow-btn',
-                  disabled: disabled || busy === 'agent',
-                  onClick: () => {
-                    const id = activeAgentItem.id
-                    void runBusy('agent', async () => {
-                      await apiCall('DELETE', `/api/dsh-flow/subagents/${encodeURIComponent(id)}`)
-                      setFeedback({ kind: 'ok', text: t('lib.deleted') })
-                      setActiveAgent('')
-                      refreshPrompts()
-                    })
-                  },
-                }, t('common.delete')),
-            ),
-            h('span', { className: 'dsh-flow-hint' },
-              t('lib.effectivePath').replace('{path}', String(activeAgentItem.resolvedPath ?? ''))),
-          ),
+          : h('div', { className: 'dsh-flow-list' }, agentList.map(agentRowOf)),
       )
 
       const feedbackRow = feedback === null
@@ -2302,6 +2371,10 @@ window.__ModuleLoader__.load({
       'lib.collapse': '收起',
       'lib.newAgent': '+ 新增子代理',
       'lib.newAgentPlaceholder': '英文 ID，例如 mod-dev',
+      'lib.agentIdLabel': '子代理 ID',
+      'lib.agentSummaryLabel': '职责简介',
+      'lib.agentSummaryPlaceholder': '一句话说明专长，例如 游戏模组开发与资源包构建专家',
+      'lib.confirmDelete': '确认删除？',
       'lib.create': '创建',
       'lib.cancel': '取消',
       'lib.agentTitle': '子代理提示词',
@@ -2476,6 +2549,10 @@ window.__ModuleLoader__.load({
       'lib.collapse': 'Collapse',
       'lib.newAgent': '+ New subagent',
       'lib.newAgentPlaceholder': 'English ID, e.g. mod-dev',
+      'lib.agentIdLabel': 'Subagent ID',
+      'lib.agentSummaryLabel': 'Role summary',
+      'lib.agentSummaryPlaceholder': 'One line on the speciality, e.g. game mod and asset-pack builder',
+      'lib.confirmDelete': 'Confirm delete?',
       'lib.create': 'Create',
       'lib.cancel': 'Cancel',
       'lib.agentTitle': 'Subagent prompts',

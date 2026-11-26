@@ -226,6 +226,10 @@ prompts/
 * **三层优先级与即时热加载**：`设置页自定义覆盖` > `本地 Markdown 文件` > `内置安全兜底`；直接修改磁盘 `.md` 文件无需重启即刻生效。
 * **Copy-on-Write 防覆盖隔离**：在设置页「提示词库 → 子代理与目录」中修改官方子代理或新增私有子代理时，自动写入 `prompts/custom/subagents/<id>.md`；一键更新仅增量同步官方目录，删除覆盖文件即可秒级恢复官方版本。
 * **增量更新与防回退保护**：点击设置页「检查更新」（或执行 `/flow prompts update`）时按 `sha256` 仅拉取变更文件；若远端镜像缓存版本早于本地则整批跳过，防止倒退覆盖。
+<<<<<<< HEAD
+=======
+* **自定义子代理的编写契约**：新增子代理必须遵循首行 `# <id> | <一句话职责简介>`，设置页列表与 `Flow` / `Plan Ultra` 的调度目录都从这一行提取名称与用途；完整规范（命名限制、四段式正文与标准模板）见 [docs/DETAIL.md](./docs/DETAIL.md#自定义子代理编写规范--subagent-authoring-specification)。
+>>>>>>> 1cfc8ea (feat(prompts): capture a role summary on creation and confirm deletes in two steps)
 
 <details>
 <summary><b>展开查看全部斜杠命令速查表</b></summary>
@@ -270,4 +274,8 @@ Required Notice: Copyright (c) 2026 MeZenith ([https://github.com/MeZenith/dsh-f
 Any derivative work or redistribution must clearly attribute dsh-flow and its original author.
 ```
 
+<<<<<<< HEAD
 `vendor/` 目录下第三方组件的许可条款请参阅 [THIRD_PARTY_NOTES.md](./THIRD_PARTY_NOTES.md)。
+=======
+`vendor/` 目录下第三方组件的许可条款请参阅 [THIRD_PARTY_NOTES.md](./THIRD_PARTY_NOTES.md)。
+>>>>>>> 1cfc8ea (feat(prompts): capture a role summary on creation and confirm deletes in two steps)
