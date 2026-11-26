@@ -247,9 +247,17 @@ export const Config = z.object({
     sourceUrl: z.string().default('https://raw.githubusercontent.com/MeZenith/dsh-flow/main/prompts'),
     /** 主源不可达时是否允许回退到内置镜像。 */
     allowMirrorFallback: z.boolean().default(true),
+    /**
+     * 用户私有提示词目录（**插件包之外**）。
+     *
+     * 留空 = `$DSH_PROFILE_DIR/data/dsh-flow/prompts/custom`，再回落 `~/.dsh-flow/prompts/custom`。
+     * 升级/重装插件不会动这个目录。
+     */
+    customDir: z.string().default(''),
   }).default({
     sourceUrl: 'https://raw.githubusercontent.com/MeZenith/dsh-flow/main/prompts',
     allowMirrorFallback: true,
+    customDir: '',
   }).volatile(),
 
   team: z.object({
@@ -403,6 +411,7 @@ export function plainConfigOf(raw) {
     prompts: read(raw?.prompts, {
       sourceUrl: 'https://raw.githubusercontent.com/MeZenith/dsh-flow/main/prompts',
       allowMirrorFallback: true,
+      customDir: '',
     }),
     team: read(raw?.team, { enabled: true, baseUrl: 'http://127.0.0.1:4317' }),
     docs: read(raw?.docs, {

@@ -18,6 +18,9 @@ const MAX_BACKOFF_MS = 60_000
 /** 首次重连延迟。 */
 const BASE_BACKOFF_MS = 1_000
 
+/** 端口没人监听时的起步退避（避免没装 dsh-team-control 的用户看到连接风暴）。 */
+const REFUSED_BASE_MS = 30_000
+
 /** 会触发"团队异常/审批"通知的帧类型。 */
 const ALERT_TYPES = new Set(['scope.request', 'lease.warn'])
 
@@ -153,10 +156,11 @@ export function createTeamWatcher({ getConfig, onAlert, onComplete, logger }) {
     }
   }
 
-  /** 退避重连循环。 */
-  function scheduleRetry() {
+  /** 退避重连循环；`refused` = 端口没人监听（多半是没装 dsh-team-control），用更长的起步间隔。 */
+  function scheduleRetry(refused = false) {
     if (!running) return
-    const delay = Math.min(MAX_BACKOFF_MS, BASE_BACKOFF_MS * (2 ** attempt))
+    const base = refused ? REFUSED_BASE_MS : BASE_BACKOFF_MS
+    const delay = Math.min(MAX_BACKOFF_MS, base * (2 ** attempt))
     const jitter = Math.floor(Math.random() * 250)
     attempt += 1
     timer = setTimeout(() => {
@@ -183,9 +187,14 @@ export function createTeamWatcher({ getConfig, onAlert, onComplete, logger }) {
     } catch (error) {
       if (!running) return
       const message = error instanceof Error ? error.message : String(error)
-      // 只在第一次失败时提示一次，之后静默退避，避免刷屏。
-      if (attempt === 0) logger?.warn?.(`flow: dsh-team-control SSE 未连接（${message}），将后台重试`)
-      scheduleRetry()
+      // 端口没人监听 = 多半没装/没起 dsh-team-control：起步就退到 30s，只提示一次。
+      const refused = /ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|EADDRNOTAVAIL/i.test(message)
+      if (attempt === 0) {
+        logger?.warn?.(refused
+          ? `flow: 未检测到 dsh-team-control（${message}），已静默退避，不刷屏`
+          : `flow: dsh-team-control SSE 未连接（${message}），将后台重试`)
+      }
+      scheduleRetry(refused)
     }
   }
 

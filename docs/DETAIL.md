@@ -171,13 +171,17 @@
 
 ### Copy-on-Write 防覆盖
 
-| 操作 | 落盘位置 |
+| 操作 | 落盘位置（插件包之外） |
 |---|---|
-| 修改官方子代理 | `prompts/custom/subagents/<id>.md` |
-| 新增自定义子代理 | `prompts/custom/subagents/<id>.md` |
-| 修改子代理目录 | `prompts/custom/subagents/README.md` |
+| 修改官方子代理 | `<customDir>/subagents/<id>.md` |
+| 新增自定义子代理 | `<customDir>/subagents/<id>.md` |
+| 修改子代理目录 | `<customDir>/subagents/README.md` |
 
-读取优先级为 `custom/` > 官方目录，`prompts/subagents/` 永不被写入，官方一键更新因此不会覆盖用户改动。删除自定义文件即恢复官方内容。
+其中 `<customDir>` 默认是 `$DSH_PROFILE_DIR/data/dsh-flow/prompts/custom`，回落 `~/.dsh-flow/prompts/custom`，可用 `prompts.customDir` 覆写。
+
+读取优先级为 私有目录 > 官方目录，`prompts/subagents/` 永不被写入，官方一键更新因此不会覆盖用户改动。删除自定义文件即恢复官方内容。
+
+**为什么必须外迁**：v0.5.0 及以前它落在插件包内（`<plugin>/prompts/custom`），用户执行 `remove + add` 或升级版本时整个 `node_modules/dsh-flow` 被替换，私有提示词会一起消失。v0.5.1 起迁到插件外并做一次性无损迁移。
 
 ### 一键更新与防降级
 
@@ -189,18 +193,43 @@
 
 ### 本地回环接口
 
-仅接受 `127.0.0.1` / `::1`，其余来源返回 403：
+接口按顺序过**五道防线**，任一道不过都不会进入读写逻辑：
+
+| 顺序 | 检查 | 失败响应 |
+|---|---|---|
+| 1 | `socket.remoteAddress` 是回环（`127.0.0.1` / `::1` / `::ffff:127.0.0.1`） | `403 {reason:'non-loopback'}` |
+| 2 | `Host` 匹配 `^(?:127\.0\.0\.1|localhost|\[::1\])(?::\d{1,5})?$`（挡 DNS Rebinding） | `403 {reason:'bad-host'}` |
+| 3 | 若带 `Origin`，其 `host` 必须与 `Host` 一致（同源） | `403 {reason:'cross-origin'}` |
+| 4 | 方法在白名单内 | `405` + `Allow: <允许的方法>` |
+| 5 | `PUT` 的 `Content-Type` 必须是 `application/json`（可带 `; charset=utf-8`） | `415 {error:'unsupported-media-type'}` |
+
+第 3 道的意义：浏览器跨站请求一定会带 `Origin`，而本地 curl 与同源页面导航不带——于是"跨站表单/脚本打本地接口"被挡住，正常本地调用不受影响。第 5 道再挡一次：跨站 HTML 表单只能发 `text/plain` / `form-urlencoded`，发不出 `application/json`。
 
 | 方法与路径 | 作用 |
 |---|---|
-| `GET /api/dsh-flow/prompts` | 版本、清单条目、底座与五模式正文及来源、目录、子代理清单 |
-| `POST /api/dsh-flow/prompts/update` | 执行一键更新，返回实际源、是否回退、主源失败原因与更新计数 |
-| `PUT /api/dsh-flow/subagents/:id` | 写入覆盖层（`id` 需匹配 `^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`） |
+| `GET\|HEAD /api/dsh-flow/prompts` | 版本、清单条目、底座与五模式正文及来源、目录、子代理清单（路径已脱敏） |
+| `POST /api/dsh-flow/prompts/update` | 执行一键更新，返回实际源、是否切换镜像、主源失败原因与计数 |
+| `PUT /api/dsh-flow/subagents/:id` | 写入覆盖层（`id` 需匹配 `^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`，正文必须是 JSON） |
 | `DELETE /api/dsh-flow/subagents/:id` | 删除覆盖层，官方项即恢复默认 |
-| `PUT /api/dsh-flow/roster` | 写入自定义目录 |
+| `PUT /api/dsh-flow/roster` | 写入自定义目录（正文必须是 JSON） |
 | `DELETE /api/dsh-flow/roster` | 删除自定义目录，恢复官方目录 |
 
+**路径脱敏**：`GET /prompts` 的 `root` / `officialDir` / `customDir` 与每条 `path` / `resolvedPath` 一律收敛为 `~/…` 或 `…/尾两级`，不再返回盘符与完整家目录前缀（设置页只用它做展示）。
+
 宿主未提供 `webServer` 时接口整体跳过，设置页提示改用 `/flow prompts update`。
+
+### 升级与更新（Upgrade & Update）
+
+本项目**只通过 GitHub 仓库分发**，不发布 npm 包、也没有插件商店入口。
+
+| 场景 | 命令 | 说明 |
+|---|---|---|
+| 安装 | `dsh plugin --profile web add github:MeZenith/dsh-flow` | 桌面端把 `web` 换成 `desktop` |
+| 更新插件本体（推荐） | `dsh plugin --profile web update dsh-flow` | 原地更新，保留配置与启用状态；之后重启 DSH |
+| 兜底重装 | `dsh plugin --profile web remove dsh-flow` → 再 `add` | 仅当 GitHub 未锁版本没拉到最新提交，或本地 link 遇到 `already-installed` |
+| 只更新官方提示词 | `/flow prompts update` 或设置页「提示词库」一键更新 | 增量按 `sha256`，不动私有目录 |
+
+**数据安全**：私有提示词在插件包**之外**——`$DSH_PROFILE_DIR/data/dsh-flow/prompts/custom/subagents`，回落 `~/.dsh-flow/prompts/custom/subagents`，可用 `prompts.customDir` 覆写。旧版包内 `prompts/custom/` 会在启动时一次性无损迁入（目标同名文件不覆盖、旧文件不删），因此升级或重装都不会丢个人定制。
 
 ## S5 能力：v0.5.0 工程级 SOP 编排
 
@@ -328,7 +357,7 @@
 
 | 项目 | 约定 |
 |---|---|
-| 目录 | `prompts/custom/subagents/` |
+| 目录 | 插件包之外的独立数据目录：`$DSH_PROFILE_DIR/data/dsh-flow/prompts/custom/subagents`，回落 `~/.dsh-flow/prompts/custom/subagents`（`prompts.customDir` 可覆写） |
 | 文件名 | `<id>.md`，一个文件对应一个子代理 |
 | ID 允许字符 | 字母、数字、`-`、`_`，且以字母或数字开头，长度 1–64 |
 | 覆盖语义 | 与官方同名时优先使用自定义版本，官方文件永不改写 |

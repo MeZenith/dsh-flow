@@ -1,6 +1,6 @@
 {
     "name":  "dsh-flow",
-    "version":  "0.5.0",
+    "version":  "0.5.1",
     "type":  "module",
     "description":  "Flow 工作流与提示词管家：五大快捷模式、分层提示词注入、模式默认模型。",
     "icon":  "./icon.svg",

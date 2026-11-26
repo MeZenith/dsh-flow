@@ -235,11 +235,53 @@ flowchart LR
 * **环境要求**：DeepSeek Harness `0.2.x` 及以上 · Node.js `22` 及以上（零构建纯 ESM，直接使用原生 `fetch` 与 `node:crypto`）
 
 ```bash
-# 从 GitHub 仓库安装到指定 profile（示例为 web）
+# 从 GitHub 仓库安装到指定 profile（示例为 web，桌面端把 web 换成 desktop）
 dsh plugin --profile web add github:MeZenith/dsh-flow
 ```
 
 安装完成后在设置页启用 `dsh-flow`，重载插件并在浏览器按 `Ctrl + R` 刷新即可使用。
+
+#### 升级与更新（Upgrade & Update）
+
+本项目**只通过 GitHub 仓库分发**，不发布 npm 包、也不提供插件商店入口。
+
+**① 更新插件本体（推荐：原地更新）**
+
+```bash
+dsh plugin --profile web update dsh-flow    # 桌面端把 web 换成 desktop
+```
+
+随后重启 DSH 生效。原地更新**不需要卸载**，配置、启用状态与私有提示词都会保留。
+
+**② 兜底重装（仅两种情况需要）**
+
+- GitHub 源没有锁版本，`update` 没能拉到最新提交；
+- 本地源码目录 link 安装时遇到 `already-installed`。
+
+这时先移除再安装，然后重启 DSH：
+
+```bash
+dsh plugin --profile web remove dsh-flow
+dsh plugin --profile web add github:MeZenith/dsh-flow
+```
+
+> **数据安全**：用户的私有提示词保存在**插件包目录之外**的独立数据目录
+> （`$DSH_PROFILE_DIR/data/dsh-flow/prompts/custom`，回落 `~/.dsh-flow/prompts/custom`，可用 `prompts.customDir` 覆写）。
+> 无论原地升级还是卸载重装，个人定制都不会丢失；旧版包内的 `custom/` 会在启动时一次性无损迁入。
+
+**③ 只更新官方提示词库（不动插件）**
+
+会话里执行 `/flow prompts update`，或在设置页「提示词库」点一键更新。增量按 `sha256` 比对，私有目录永不被覆盖。
+
+#### 默认开启项与关闭位置
+
+| 能力 | 默认 | 关闭位置 |
+|---|---|---|
+| 连续报错熔断 | 开 | 设置 → 工作流与熔断 → 熔断总开关（`circuit.enabled`） |
+| Team 监听（SSE） | 开 | 同上（`team.enabled`）；未装 `dsh-team-control` 时会自动静默退避，不再刷日志 |
+| 镜像回退 | 开（照顾国内网络） | 设置 → 提示词库 → 允许镜像回退（`prompts.allowMirrorFallback`）；关掉后主源失败直接报错 |
+| 文档与门禁 | 开 | 设置 → 工作流与熔断 → 「文档与门禁」卡片（`docs.enabled`、`gate.timeoutSeconds` 等） |
+| UI Skill 探测 | 开 | 同一张卡片（`ui.skillProbe`） |
 
 ---
 
@@ -253,17 +295,16 @@ prompts/
 ├── subagents/              # 官方子代理技能库（只读托管，一键更新源）
 │   ├── README.md           # 子代理路由目录
 │   └── *.md                # 十大内置专精提示词正文
-└── custom/
-    └── subagents/          # 用户私有扩展与同名覆盖层（一键更新绝不触碰）
 ```
 
+> 私有覆盖层（`custom/subagents/`）已迁到**插件包之外**的数据目录：
+> `$DSH_PROFILE_DIR/data/dsh-flow/prompts/custom/subagents`，回落 `~/.dsh-flow/prompts/custom/subagents`。
+> 升级或重装插件都不会清空；旧版包内 `prompts/custom/` 首次启动会自动无损迁入。
+
 * **三层优先级与即时热加载**：`设置页自定义覆盖` > `本地 Markdown 文件` > `内置安全兜底`；直接修改磁盘 `.md` 文件无需重启即刻生效。
-* **Copy-on-Write 防覆盖隔离**：在设置页「提示词库 → 子代理与目录」中修改官方子代理或新增私有子代理时，自动写入 `prompts/custom/subagents/<id>.md`；一键更新仅增量同步官方目录，删除覆盖文件即可秒级恢复官方版本。
+* **Copy-on-Write 防覆盖隔离**：在设置页「提示词库 → 子代理与目录」中修改官方子代理或新增私有子代理时，自动写入上面那个独立数据目录；一键更新仅增量同步官方目录，删除覆盖文件即可秒级恢复官方版本。
 * **增量更新与防回退保护**：点击设置页「检查更新」（或执行 `/flow prompts update`）时按 `sha256` 仅拉取变更文件；若远端镜像缓存版本早于本地则整批跳过，防止倒退覆盖。
-<<<<<<< HEAD
-=======
 * **自定义子代理的编写契约**：新增子代理必须遵循首行 `# <id> | <一句话职责简介>`，设置页列表与 `Flow` / `Plan Ultra` 的调度目录都从这一行提取名称与用途；完整规范（命名限制、四段式正文与标准模板）见 [docs/DETAIL.md](./docs/DETAIL.md#自定义子代理编写规范--subagent-authoring-specification)。
->>>>>>> 1cfc8ea (feat(prompts): capture a role summary on creation and confirm deletes in two steps)
 
 <details>
 <summary><b>展开查看全部斜杠命令速查表</b></summary>
@@ -308,8 +349,4 @@ Required Notice: Copyright (c) 2026 MeZenith ([https://github.com/MeZenith/dsh-f
 Any derivative work or redistribution must clearly attribute dsh-flow and its original author.
 ```
 
-<<<<<<< HEAD
 `vendor/` 目录下第三方组件的许可条款请参阅 [THIRD_PARTY_NOTES.md](./THIRD_PARTY_NOTES.md)。
-=======
-`vendor/` 目录下第三方组件的许可条款请参阅 [THIRD_PARTY_NOTES.md](./THIRD_PARTY_NOTES.md)。
->>>>>>> 1cfc8ea (feat(prompts): capture a role summary on creation and confirm deletes in two steps)

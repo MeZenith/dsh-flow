@@ -10,9 +10,13 @@
  * === 子代理防覆盖（Copy-on-Write） ===
  *
  * **永不修改 `prompts/subagents/` 下的官方文件**，否则一键更新会覆盖用户改动。
- * 改名/新增一律写 `prompts/custom/subagents/<id>.md`；目录改写写
- * `prompts/custom/subagents/README.md`。读取优先级：
+ * 改名/新增一律写用户私有目录 `custom/subagents/<id>.md`；目录改写写
+ * `custom/subagents/README.md`。读取优先级：
  * `custom/subagents/<name>.md` > `subagents/<name>.md`。
+ *
+ * **私有目录在插件包之外**（`resolveCustomDir`：配置 `prompts.customDir` >
+ * `$DSH_PROFILE_DIR/data/dsh-flow/prompts/custom` > `~/.dsh-flow/prompts/custom`），
+ * 因此升级/重装插件不会丢用户定制；旧版包内 `custom/` 会自动无损迁移一次。
  *
  * === 渐进式披露 ===
  *
@@ -20,7 +24,8 @@
  *
  * @module dsh-flow/prompt-store
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { BASE_RULES, DEFAULT_MODE_PROMPTS } from './config.js'
@@ -28,6 +33,102 @@ import { isPromptMode, modeConfigOf } from './modes.js'
 
 /** 插件内 `prompts/` 目录的绝对路径。 */
 export const PROMPT_ROOT = fileURLToPath(new URL('./prompts/', import.meta.url))
+
+/**
+ * 解析用户私有提示词目录（**必须在插件包目录之外**）。
+ *
+ * 起因：v0.5.0 及以前 `custom/` 落在 `<plugin>/prompts/custom`，用户一旦
+ * `dsh plugin remove + add` 或换版本，`node_modules/dsh-flow` 整个被替换，
+ * 私有子代理就被清空了。这里改为插件外的持久化目录：
+ *
+ * 1. 配置显式覆写 `prompts.customDir`（相对路径按进程 cwd 解析）；
+ * 2. `DSH_PROFILE_DIR/data/dsh-flow/prompts/custom`；
+ * 3. `~/.dsh-flow/prompts/custom`。
+ *
+ * @param {{ getConfig?: () => any, env?: NodeJS.ProcessEnv, home?: string }} [deps]
+ * @returns {string} 实际用于读写子代理覆盖层的目录（已含 `subagents` 尾段）。
+ */
+export function resolveCustomDir({ getConfig, env = process.env, home = homedir() } = {}) {
+  let configured = ''
+  try {
+    configured = String(getConfig?.()?.prompts?.customDir ?? '').trim()
+  } catch { configured = '' }
+  const base = configured !== ''
+    ? configured
+    : (String(env?.DSH_PROFILE_DIR ?? '').trim() !== ''
+      ? join(String(env.DSH_PROFILE_DIR).trim(), 'data', 'dsh-flow', 'prompts', 'custom')
+      : join(home, '.dsh-flow', 'prompts', 'custom'))
+  return join(base, 'subagents')
+}
+
+/**
+ * 一次性无损迁移：旧 `<plugin>/prompts/custom/subagents` → 新目录。
+ *
+ * 规则：目标已存在同名文件**不覆盖**；旧文件**不删除**（留给用户自己确认后再清）。
+ *
+ * @param {{ legacyDir?: string, targetDir?: string, logger?: object }} [deps]
+ * @returns {{ copied: string[], skipped: string[], errors: string[] }}
+ */
+export function migrateLegacyCustom({ legacyDir, targetDir, logger } = {}) {
+  const copied = []
+  const skipped = []
+  const errors = []
+  if (typeof legacyDir !== 'string' || typeof targetDir !== 'string' || legacyDir === targetDir) {
+    return { copied, skipped, errors }
+  }
+  let names = []
+  try {
+    if (!existsSync(legacyDir)) return { copied, skipped, errors }
+    names = readdirSync(legacyDir, { withFileTypes: true })
+      .filter(entry => entry.isFile())
+      .map(entry => entry.name)
+  } catch (error) {
+    errors.push(`读取旧目录失败：${error instanceof Error ? error.message : String(error)}`)
+    return { copied, skipped, errors }
+  }
+  if (names.length === 0) return { copied, skipped, errors }
+  try {
+    mkdirSync(targetDir, { recursive: true })
+  } catch (error) {
+    errors.push(`创建新目录失败：${error instanceof Error ? error.message : String(error)}`)
+    return { copied, skipped, errors }
+  }
+  for (const name of names) {
+    const source = join(legacyDir, name)
+    const target = join(targetDir, name)
+    if (existsSync(target)) {
+      skipped.push(name)
+      continue
+    }
+    try {
+      copyFileSync(source, target)
+      copied.push(name)
+    } catch (error) {
+      errors.push(`${name}：${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+  if (copied.length > 0) {
+    logger?.info?.(`flow: 已将 ${copied.length} 个私有提示词迁移到 ${targetDir}（旧目录保留未删）`)
+  }
+  return { copied, skipped, errors }
+}
+
+/**
+ * 把绝对路径收敛成可公开的显示形式：家目录内 `~/…`，否则只留两级尾段。
+ *
+ * @param {string} path
+ * @param {string} [home]
+ * @returns {string}
+ */
+export function displayPathOf(path, home = homedir()) {
+  const full = String(path ?? '')
+  if (full === '') return ''
+  const normalized = full.replace(/\\/g, '/')
+  const homeNormalized = String(home ?? '').replace(/\\/g, '/')
+  if (homeNormalized !== '' && normalized.startsWith(homeNormalized)) return `~${normalized.slice(homeNormalized.length)}`
+  const parts = normalized.split('/').filter(Boolean)
+  return parts.length <= 2 ? normalized : `…/${parts.slice(-2).join('/')}`
+}
 
 /** 需要注入目录摘要的模式。 */
 export const ROSTER_MODES = Object.freeze(['flow', 'plan-ultra'])
@@ -76,7 +177,11 @@ export function createPromptStore({ getConfig, logger, root = PROMPT_ROOT }) {
   const cache = new Map()
 
   const OFFICIAL_DIR = join(root, 'subagents')
-  const CUSTOM_DIR = join(root, 'custom', 'subagents')
+  // 私有覆盖层落在插件包目录之外（配置 > DSH_PROFILE_DIR > ~/.dsh-flow），
+  // 因此 `remove + add` 或换版本不会清空用户定制。
+  const CUSTOM_DIR = resolveCustomDir({ getConfig })
+  const LEGACY_CUSTOM_DIR = join(root, 'custom', 'subagents')
+  const customMigration = migrateLegacyCustom({ legacyDir: LEGACY_CUSTOM_DIR, targetDir: CUSTOM_DIR, logger })
   const ROSTER_FILE = 'README.md'
 
   /** 带 mtime 缓存的读取；不存在返回 undefined。 */
@@ -379,6 +484,14 @@ export function createPromptStore({ getConfig, logger, root = PROMPT_ROOT }) {
     root,
     officialDir: OFFICIAL_DIR,
     customDir: CUSTOM_DIR,
+    /** 对外只读展示用（不含绝对磁盘前缀）。 */
+    display: {
+      root: 'prompts',
+      officialDir: 'prompts/subagents',
+      customDir: displayPathOf(CUSTOM_DIR),
+    },
+    legacyCustomDir: LEGACY_CUSTOM_DIR,
+    customMigration,
     base,
     baseFile,
     mode,

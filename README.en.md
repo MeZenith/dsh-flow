@@ -80,8 +80,8 @@ Gate tickets look like `#t3f9`. **Desktop**: click the card or run the command. 
 Every prompt is decoupled into a standalone Markdown file with **hot reload on modification**, so changing one line of prompt no longer means editing source and shipping a release:
 
 * **Zero context redundancy**: in `Flow` or `Plan Ultra`, only a compact subagent index is injected into the orchestrator (keeping prefix cache hits high); a full expert prompt is read only when that expert is actually dispatched;
-* **Extend experts without code**: drop a `.md` file into `prompts/custom/subagents/` (or create it visually in settings) and the orchestrator recognises and dispatches your domain expert immediately — game-mod work, reverse engineering, protocol analysis, and so on;
-* **Copy-on-write isolation**: editing an official subagent or the directory in settings writes into the `custom/` layer, so incremental updates from GitHub **never overwrite** your private customisation, with built-in timestamp-based rollback protection.
+* **Extend experts without code**: drop a `.md` file into the private data directory (`<customDir>/subagents/`, or create it visually in settings) and the orchestrator recognises and dispatches your domain expert immediately — game-mod work, reverse engineering, protocol analysis, and so on;
+* **Copy-on-write isolation**: editing an official subagent or the directory in settings writes into that private data directory, so incremental updates from GitHub **never overwrite** your customisation, with built-in timestamp-based rollback protection.
 
 #### 4. Amnesia-proof long conversations (the `.flow/spec.md` anchor)
 
@@ -236,6 +236,43 @@ dsh plugin --profile web add github:MeZenith/dsh-flow
 
 After installing, enable `dsh-flow` in settings, reload the plugin and refresh the browser with `Ctrl + R`.
 
+#### Upgrade & update
+
+This project ships **only through the GitHub repository** — no npm package, no marketplace listing.
+
+**1) Update the plugin itself (preferred, in place):**
+
+```bash
+dsh plugin --profile web update dsh-flow    # use `desktop` for the desktop profile
+```
+
+Restart DSH afterwards. An in-place update keeps your config, enabled state and private prompts.
+
+**2) Reinstall fallback (only when needed):**
+
+Use it when the GitHub source has no pinned version and `update` didn't fetch the latest commit, or when a local link install reports `already-installed`:
+
+```bash
+dsh plugin --profile web remove dsh-flow
+dsh plugin --profile web add github:MeZenith/dsh-flow
+```
+
+> **Your data is safe**: private prompts live **outside the plugin directory** (`$DSH_PROFILE_DIR/data/dsh-flow/prompts/custom`, falling back to `~/.dsh-flow/prompts/custom`, overridable via `prompts.customDir`). Upgrading or reinstalling never removes them; a legacy in-package `custom/` folder is migrated once, without overwriting or deleting anything.
+
+**3) Update only the official prompt library:**
+
+Run `/flow prompts update`, or click the one-click update in Settings → Prompts. It diffs by `sha256` and never touches your private prompts.
+
+#### Defaults and where to turn them off
+
+| Capability | Default | Where to disable |
+|---|---|---|
+| Circuit breaker | on | Settings → Workflow & breaker (`circuit.enabled`) |
+| Team SSE listener | on | Same tab (`team.enabled`); it backs off silently when `dsh-team-control` is absent |
+| Mirror fallback | on (better for mainland networks) | Settings → Prompts → allow mirror fallback (`prompts.allowMirrorFallback`) |
+| Docs & gate | on | Settings → Workflow & breaker → "Docs & gate" card (`docs.enabled`, `gate.timeoutSeconds`) |
+| UI skill probe | on | Same card (`ui.skillProbe`) |
+
 ---
 
 ### Prompt library architecture and customisation
@@ -248,12 +285,14 @@ prompts/
 ├── subagents/              # official subagent library (managed read-only source)
 │   ├── README.md           # subagent routing directory
 │   └── *.md                # the ten built-in specialist prompts
-└── custom/
-    └── subagents/          # user extensions and same-name overrides (never touched by updates)
 ```
 
+> Private overrides (`custom/subagents/`) live **outside the plugin package**:
+> `$DSH_PROFILE_DIR/data/dsh-flow/prompts/custom/subagents`, falling back to `~/.dsh-flow/prompts/custom/subagents`.
+> Upgrading or reinstalling the plugin never wipes them; a legacy in-package `prompts/custom/` is migrated once on startup.
+
 * **Three-tier priority with hot reload**: `settings override` > `local Markdown file` > `built-in fallback`; editing an on-disk `.md` file takes effect without a restart.
-* **Copy-on-write isolation**: editing an official subagent or adding a private one under "Prompts → Subagents" writes `prompts/custom/subagents/<id>.md`; an update only syncs the official directory incrementally, and deleting the override restores the official version instantly.
+* **Copy-on-write isolation**: editing an official subagent or adding a private one under "Prompts → Subagents" writes into the private data directory (`<customDir>/subagents/<id>.md`); an update only syncs the official directory incrementally, and deleting the override restores the official version instantly.
 * **Incremental update with rollback protection**: "Check for updates" (or `/flow prompts update`) fetches only changed files by `sha256`; when the remote mirror is older than the local copy the whole batch is skipped, so a stale cache cannot roll the library back.
 * **Authoring contract for custom subagents**: a new subagent must start with `# <id> | <one-line role summary>`; the settings list and the `Flow` / `Plan Ultra` dispatch directory both read the name and purpose from that line. The full specification (naming limits, four-part body and a standard template) is in [docs/DETAIL.md](./docs/DETAIL.md#自定义子代理编写规范--subagent-authoring-specification).
 

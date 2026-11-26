@@ -9,9 +9,13 @@
  */
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+import { createPromptApi } from '../prompt-api.js'
+import { migrateLegacyCustom, resolveCustomDir } from '../prompt-store.js'
 
 import {
   attachmentsOf, checkDoc, digestOf, docsNote, ensureDocs, resolveTarget, templateOf, writeDoc,
@@ -1449,9 +1453,9 @@ test('P6-1 manifest.json：每条路径都被 ALLOWED 放行，sha256 与磁盘�
   return `${manifest.files.length} 条全部放行且哈希一致`
 })
 
-test('P6-2 package.json：0.5.0 + 七个新模块与 prompts 都在发布清单，展示素材不进包', () => {
+test('P6-2 package.json：0.5.1 + 七个新模块与 prompts 都在发布清单，展示素材不进包', () => {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
-  assert.equal(pkg.version, '0.5.0')
+  assert.equal(pkg.version, '0.5.1')
   for (const file of ['flow-level.js', 'flow-docs.js', 'gate-tickets.js', 'gate-router.js', 'gate-settle.js', 'dispatch-declare.js', 'qa-handoff.js', 'prompts']) {
     assert.ok(pkg.files.includes(file), `files 缺 ${file}`)
   }
@@ -1513,6 +1517,259 @@ await testAsync('P6-5 UI Skill 开关：设置里关掉后直接回内置规范�
   assert.equal(scanned, 0, '关掉探测后不许再扫 skill 目录')
   assert.ok(result.text.includes('内置'))
   return 'disabled ✓｜零扫描 ✓'
+})
+
+/* ------------------------------------------------------------------ *
+ * P7：本地接口安全矩阵（五道防线）
+ * ------------------------------------------------------------------ */
+
+function fakeApiStore() {
+  const writes = []
+  return {
+    writes,
+    display: { root: 'prompts', officialDir: 'prompts/subagents', customDir: '~/.dsh-flow/prompts/custom/subagents' },
+    manifestInfo: () => ({ version: '0.5.1', updatedAt: '', fileCount: 0 }),
+    base: () => ({ source: 'file', path: 'C:/node_modules/dsh-flow/prompts/base.md', text: 'base' }),
+    baseFile: () => 'base',
+    mode: () => ({ source: 'file', path: 'C:/node_modules/dsh-flow/prompts/modes/plan.md', text: 'plan' }),
+    rosterInfo: () => ({ content: '', source: 'default', hasCustom: false, path: 'C:/node_modules/dsh-flow/prompts/subagents/README.md' }),
+    listSubagents: () => [{
+      id: 'qa-tester', title: 't', kind: 'official', overridden: false, content: 'c',
+      resolvedPath: 'C:/node_modules/dsh-flow/prompts/subagents/qa-tester.md',
+    }],
+    invalidate() {},
+    writeSubagent(id, content) { writes.push({ id, content }); return { ok: true } },
+    writeRoster(content) { writes.push({ id: 'roster', content }); return { ok: true } },
+    deleteSubagent() { return { ok: true } },
+    deleteRoster() { return { ok: true } },
+  }
+}
+
+function fakeReq({ method = 'GET', url = '/api/dsh-flow/prompts', headers = {}, address = '127.0.0.1', body = '' } = {}) {
+  const chunks = body === '' ? [] : [Buffer.from(body, 'utf8')]
+  return {
+    method,
+    url,
+    headers,
+    socket: { remoteAddress: address },
+    async *[Symbol.asyncIterator]() {
+      for (const chunk of chunks) yield chunk
+    },
+  }
+}
+
+function fakeRes() {
+  return {
+    statusCode: 0,
+    headers: {},
+    body: '',
+    setHeader(name, value) { this.headers[String(name).toLowerCase()] = value },
+    end(text) { this.body = text ?? '' },
+  }
+}
+
+function apiHarness() {
+  const store = fakeApiStore()
+  let updateCalls = 0
+  const api = createPromptApi({
+    store,
+    update: async () => { updateCalls += 1; return { result: { ok: true }, text: 'ok' } },
+  })
+  return { store, api, updates: () => updateCalls }
+}
+
+await testAsync('P7-1 合法同源 GET/HEAD 200，路径字段已脱敏', async () => {
+  const { api } = apiHarness()
+  const res = fakeRes()
+  await api.getOverview(fakeReq({ headers: { host: '127.0.0.1:3080' } }), res)
+  assert.equal(res.statusCode, 200)
+  const data = JSON.parse(res.body).data
+  assert.equal(data.root, 'prompts')
+  assert.equal(data.officialDir, 'prompts/subagents')
+  assert.ok(!data.base.path.includes('C:'), `base.path 仍是绝对路径：${data.base.path}`)
+  assert.ok(!data.subagents[0].resolvedPath.includes('C:'), 'resolvedPath 仍是绝对路径')
+  assert.equal(data.customDir, '~/.dsh-flow/prompts/custom/subagents')
+
+  const headRes = fakeRes()
+  await api.getOverview(fakeReq({ method: 'HEAD', headers: { host: 'LOCALHOST:3080' } }), headRes)
+  assert.equal(headRes.statusCode, 200, 'HEAD 与大小写 LOCALHOST 都应放行')
+
+  const sixRes = fakeRes()
+  await api.getOverview(fakeReq({ headers: { host: '[::1]:3080' } }), sixRes)
+  assert.equal(sixRes.statusCode, 200, '[::1] 应放行')
+  return 'GET/HEAD/LOCALHOST/[::1] ✓｜路径脱敏 ✓'
+})
+
+await testAsync('P7-2 伪造 Host 全部 403（含 @ / / / 尾点 / 双端口）', async () => {
+  const { api } = apiHarness()
+  const bad = ['evil.example', '127.0.0.1@evil.example', '127.0.0.1/evil', 'localhost.', '127.0.0.1:3080:80', '127.0.0.1:99999', '', '::1']
+  for (const host of bad) {
+    const res = fakeRes()
+    await api.getOverview(fakeReq({ headers: { host } }), res)
+    assert.equal(res.statusCode, 403, `Host=${JSON.stringify(host)} 应被拒`)
+    assert.equal(JSON.parse(res.body).reason, 'bad-host')
+  }
+  const missing = fakeRes()
+  await api.getOverview(fakeReq({ headers: {} }), missing)
+  assert.equal(missing.statusCode, 403, '缺少 Host 也要拒')
+  return `${bad.length} 个畸形 Host 全部 403`
+})
+
+await testAsync('P7-3 跨站 Origin 403，同源 Origin 放行，无 Origin 放行', async () => {
+  const { api } = apiHarness()
+  const host = '127.0.0.1:3080'
+
+  const cross = fakeRes()
+  await api.getOverview(fakeReq({ headers: { host, origin: 'http://evil.example' } }), cross)
+  assert.equal(cross.statusCode, 403)
+  assert.equal(JSON.parse(cross.body).reason, 'cross-origin')
+
+  const same = fakeRes()
+  await api.getOverview(fakeReq({ headers: { host, origin: 'http://127.0.0.1:3080' } }), same)
+  assert.equal(same.statusCode, 200, '同源 Origin 必须放行')
+
+  const upper = fakeRes()
+  await api.getOverview(fakeReq({ headers: { host, origin: 'HTTP://127.0.0.1:3080' } }), upper)
+  assert.equal(upper.statusCode, 200, 'Origin 大小写不敏感')
+
+  const nullOrigin = fakeRes()
+  await api.getOverview(fakeReq({ headers: { host, origin: 'null' } }), nullOrigin)
+  assert.equal(nullOrigin.statusCode, 403, 'Origin: null 按跨站处理')
+
+  const updated = fakeRes()
+  await api.postUpdate(fakeReq({ method: 'POST', url: '/api/dsh-flow/prompts/update', headers: { host, origin: 'https://evil.example', 'content-type': 'text/plain' } }), updated)
+  assert.equal(updated.statusCode, 403, 'POST 跨站必须在方法/正文校验之前被拦')
+  return '跨站 403 ✓｜同源/无 Origin 放行 ✓｜Origin: null 拒绝 ✓'
+})
+
+await testAsync('P7-4 方法白名单：GET /prompts/update 405 + Allow，且零副作用', async () => {
+  const { api, updates } = apiHarness()
+  const res = fakeRes()
+  await api.postUpdate(fakeReq({ method: 'GET', url: '/api/dsh-flow/prompts/update', headers: { host: '127.0.0.1:3080' } }), res)
+  assert.equal(res.statusCode, 405)
+  assert.equal(res.headers.allow, 'POST')
+  assert.equal(updates(), 0, '405 时绝不能触发更新')
+
+  const put = fakeRes()
+  await api.roster(fakeReq({ method: 'POST', url: '/api/dsh-flow/roster', headers: { host: '127.0.0.1:3080', 'content-type': 'application/json' } }), put)
+  assert.equal(put.statusCode, 405)
+  assert.equal(put.headers.allow, 'PUT, DELETE')
+
+  const getSub = fakeRes()
+  await api.subagent(fakeReq({ method: 'GET', url: '/api/dsh-flow/subagents/qa-tester', headers: { host: '127.0.0.1:3080' } }), getSub)
+  assert.equal(getSub.statusCode, 405)
+  assert.equal(getSub.headers.allow, 'PUT, DELETE')
+  return 'GET update 405 ✓｜roster POST 405 ✓｜subagent GET 405 ✓'
+})
+
+await testAsync('P7-5 PUT 正文类型：text/plain 415 且不落盘，application/json 放行', async () => {
+  const { api, store } = apiHarness()
+  const rejected = fakeRes()
+  await api.subagent(fakeReq({
+    method: 'PUT',
+    url: '/api/dsh-flow/subagents/qa-tester',
+    headers: { host: '127.0.0.1:3080', 'content-type': 'text/plain' },
+    body: JSON.stringify({ content: 'x' }),
+  }), rejected)
+  assert.equal(rejected.statusCode, 415)
+  assert.deepEqual(store.writes, [], '415 时绝不能写盘')
+
+  const accepted = fakeRes()
+  await api.subagent(fakeReq({
+    method: 'PUT',
+    url: '/api/dsh-flow/subagents/qa-tester',
+    headers: { host: '127.0.0.1:3080', 'content-type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({ content: 'hello' }),
+  }), accepted)
+  assert.equal(accepted.statusCode, 200, accepted.body)
+  assert.deepEqual(store.writes, [{ id: 'qa-tester', content: 'hello' }])
+  return 'text/plain 415 零写入 ✓｜JSON 放行 ✓'
+})
+
+await testAsync('P7-6 非回环来源 403，本地 curl（无 Origin、无 content-type 的 GET）放行', async () => {
+  const { api } = apiHarness()
+  const remote = fakeRes()
+  await api.getOverview(fakeReq({ address: '192.168.1.9', headers: { host: '127.0.0.1:3080' } }), remote)
+  assert.equal(remote.statusCode, 403)
+  assert.equal(JSON.parse(remote.body).reason, 'non-loopback')
+
+  const curl = fakeRes()
+  await api.getOverview(fakeReq({ headers: { host: '127.0.0.1:3080' } }), curl)
+  assert.equal(curl.statusCode, 200)
+  return '非回环 403 ✓｜本地 curl 放行 ✓'
+})
+
+/* ------------------------------------------------------------------ *
+ * P8：私有提示词目录（插件包之外 + 无损迁移）
+ * ------------------------------------------------------------------ */
+
+test('P8-1 customDir 解析：配置 > DSH_PROFILE_DIR > 家目录', () => {
+  const home = join(tmpdir(), 'fake-home')
+  const fromProfile = resolveCustomDir({ env: { DSH_PROFILE_DIR: join(tmpdir(), 'profile') }, home })
+  assert.ok(fromProfile.endsWith(join('data', 'dsh-flow', 'prompts', 'custom', 'subagents')), fromProfile)
+
+  const fromHome = resolveCustomDir({ env: {}, home })
+  assert.equal(fromHome, join(home, '.dsh-flow', 'prompts', 'custom', 'subagents'))
+
+  const overridden = resolveCustomDir({
+    getConfig: () => ({ prompts: { customDir: join(tmpdir(), 'mine') } }),
+    env: { DSH_PROFILE_DIR: join(tmpdir(), 'profile') },
+    home,
+  })
+  assert.equal(overridden, join(tmpdir(), 'mine', 'subagents'))
+  return '三级回退 ✓'
+})
+
+test('P8-2 旧目录无损迁移：同名不覆盖、新文件复制、旧文件保留', () => {
+  const base = mkdtempSync(join(tmpdir(), 'dsh-flow-mig-'))
+  const legacy = join(base, 'legacy')
+  const target = join(base, 'target')
+  mkdirSync(legacy, { recursive: true })
+  mkdirSync(target, { recursive: true })
+  writeFileSync(join(legacy, 'a.md'), '# a legacy', 'utf8')
+  writeFileSync(join(legacy, 'b.md'), '# b legacy', 'utf8')
+  writeFileSync(join(target, 'b.md'), '# b new', 'utf8')
+
+  const result = migrateLegacyCustom({ legacyDir: legacy, targetDir: target })
+  assert.deepEqual(result.copied, ['a.md'])
+  assert.deepEqual(result.skipped, ['b.md'])
+  assert.deepEqual(result.errors, [])
+  assert.equal(readFileSync(join(target, 'a.md'), 'utf8'), '# a legacy')
+  assert.equal(readFileSync(join(target, 'b.md'), 'utf8'), '# b new', '同名文件绝不能被旧内容覆盖')
+  assert.equal(readFileSync(join(legacy, 'a.md'), 'utf8'), '# a legacy', '旧目录不许被删')
+  assert.equal(readFileSync(join(legacy, 'b.md'), 'utf8'), '# b legacy')
+
+  const again = migrateLegacyCustom({ legacyDir: legacy, targetDir: target })
+  assert.deepEqual(again.copied, [], '第二次迁移应是幂等的')
+  rmSync(base, { recursive: true, force: true })
+  return 'copied a.md ✓｜b.md 保持新版 ✓｜旧目录保留 ✓｜幂等 ✓'
+})
+
+/* ------------------------------------------------------------------ *
+ * P9：全仓零 Git 冲突标记
+ * ------------------------------------------------------------------ */
+
+test('P9-1 全仓（md/js/json/yml）零冲突标记', () => {
+  const root = fileURLToPath(new URL('..', import.meta.url))
+  const skip = new Set(['node_modules', '.git', '.flow'])
+  const hits = []
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (!skip.has(entry.name)) walk(join(dir, entry.name))
+        continue
+      }
+      if (!/\.(md|js|mjs|json|yml|yaml)$/i.test(entry.name)) continue
+      const path = join(dir, entry.name)
+      const lines = readFileSync(path, 'utf8').split('\n')
+      lines.forEach((line, index) => {
+        if (/^(<<<<<<<|=======$|>>>>>>>)/.test(line)) hits.push(`${relative(root, path)}:${index + 1}`)
+      })
+    }
+  }
+  walk(root)
+  assert.deepEqual(hits, [], `仍有冲突标记：${hits.join(' / ')}`)
+  return '零冲突标记 ✓'
 })
 
 /* ------------------------------------------------------------------ *

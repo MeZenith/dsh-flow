@@ -8,6 +8,31 @@
 
 暂无。
 
+## [0.5.1] - 2026-11-26
+
+安全补丁：修掉本地接口的跨站注入面，并把用户私有提示词迁出插件包目录。
+
+### Security
+
+- **本地接口五道防线**（`prompt-api.js`）：回环对端 → `Host` 白名单（挡 DNS Rebinding）→ `Origin` 同源校验 → 方法白名单（`405` + `Allow`）→ `PUT` 强制 `application/json`（`415`）。跨站表单/脚本再也打不进来，本地 curl 与同源页面不受影响。
+- **路径脱敏**：`GET /api/dsh-flow/prompts` 不再返回盘符与完整家目录前缀，`root` / `officialDir` / `customDir` 与每条 `path` / `resolvedPath` 统一收敛为 `~/…` 或 `…/尾两级`。
+
+### Fixed
+
+- **私有提示词不再随插件升级丢失**：`custom/` 从 `<plugin>/prompts/custom` 迁到 `$DSH_PROFILE_DIR/data/dsh-flow/prompts/custom`（回落 `~/.dsh-flow/prompts/custom`，可用 `prompts.customDir` 覆写）。启动时一次性无损迁移：目标已有同名文件不覆盖，旧文件不删除。
+- **镜像回退透明化**：回退到 jsDelivr 时，回执与日志都明确写出"已切换镜像 <域名>"，不再只是一句"主源不可达"。
+- **team 监听静默退避**：未安装 / 未运行 `dsh-team-control`（连接被拒）时起步退避 30s、只提示一次，不再高频重连刷日志。
+
+### Changed
+
+- 安装与升级文档统一为 **GitHub 仓库分发**：优先 `dsh plugin update`，仅在拉不到最新提交或 link 安装报 `already-installed` 时 `remove + add`；不再出现 npm 包安装引导。
+- `docs/DETAIL.md` 补齐 HTTP 契约（`403` / `405` / `415`）、路径脱敏说明与私有目录位置。
+
+### Docs
+
+- 清理 `README.md` 遗留的两处合并冲突标记。
+- README（中英）与 `docs/DETAIL.md` 增加「升级与更新」小节与数据安全说明。
+
 ## [0.5.0] - 2026-11-26
 
 从"提示词流程"升级为**工程级 SOP 编排引擎**：分级、编号文档、可遥控门禁、派单白名单与双阶验收全部落到代码与自检里。

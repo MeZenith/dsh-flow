@@ -309,8 +309,11 @@ export async function updatePrompts({ sourceUrl, root, signal, logger, allowMirr
   if (base !== requested) {
     result.fallback = true
     result.primaryError = attempts[0] ?? '主源不可达'
-    result.note = '镜像（jsDelivr）对 @main 有 CDN 缓存延迟，刚推送的改动可能尚未同步。'
-    logger?.info?.(`flow: 主源不可达，已回退镜像 ${base}`)
+    let mirrorHost = base
+    try { mirrorHost = new URL(base).host } catch { /* 非法 URL 就原样展示 */ }
+    result.mirrorHost = mirrorHost
+    result.note = `主源不可达，已自动切换到镜像 ${mirrorHost}（jsDelivr 对 @main 有 CDN 缓存延迟，刚推送的改动可能尚未同步）。`
+    logger?.info?.(`flow: 主源不可达，已切换到镜像 ${mirrorHost} → ${base}`)
   }
 
   let manifest
@@ -406,6 +409,7 @@ export function formatUpdateResult(result) {
   lines.push(result.ok === true ? '提示词已更新。' : '提示词更新未完成。')
   lines.push(`- 源：${result.source}`)
   if (result.fallback === true) {
+    lines.push(`- 已切换镜像：${result.mirrorHost ?? result.source}`)
     lines.push(`- 主源不可达：${result.primaryError || '原因未知'}`)
     if (typeof result.note === 'string' && result.note !== '') lines.push(`- 提示：${result.note}`)
   }
