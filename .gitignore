@@ -79,6 +79,20 @@ desktop.ini
 !/team-sse.js
 !/prompt-store.js
 !/prompt-updater.js
+
+# v0.5.0 新增 Host 模块（漏了会导致"文件在本地、永远提交不上去"）
+!/flow-level.js
+!/flow-docs.js
+!/gate-tickets.js
+!/gate-router.js
+!/gate-settle.js
+!/flow-ui-skill.js
+# P4/P5 预留：文件还没建，先把白名单占好，免得建的时候又漏一次
+!/dispatch-declare.js
+!/qa-handoff.js
+
+# 自检脚本（进仓库、但不进 npm 包；package.json 的 files 未列 test/）
+!/test/**
 !/prompts/**
 !/prompt-api.js
 !/docs/assets/

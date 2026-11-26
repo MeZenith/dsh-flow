@@ -29,8 +29,15 @@ export function createNotifier({ getConfig, activity, im, email, logger }) {
   const timers = new Set()
   let disposed = false
 
-  /** 读策略。 */
-  function strategyOf(event) {
+  /**
+   * 读策略。
+   *
+   * `payload.strategy` 优先于配置：门禁超时催办要在「此刻」用 `gate.escalate` 指定的通道，
+   * 而不是被 `notify.<event>` 的全局策略覆盖（两处语义不同，别混）。
+   */
+  function strategyOf(event, payload) {
+    const override = payload?.strategy
+    if (['im-first', 'email-first', 'both', 'off'].includes(override)) return override
     const value = getConfig()?.notify?.[event]
     return ['im-first', 'email-first', 'both', 'off'].includes(value) ? value : 'im-first'
   }
@@ -58,17 +65,22 @@ export function createNotifier({ getConfig, activity, im, email, logger }) {
    * @returns {Promise<{ im?: object, email?: object }>}
    */
   async function deliver(event, payload) {
-    const strategy = strategyOf(event)
+    const strategy = strategyOf(event, payload)
     if (strategy === 'off') return {}
 
     const config = getConfig()
-    const attachments = collectAttachments({
-      event,
-      config,
-      agent: payload.agent,
-      errorContext: payload.errorContext,
-      teamReport: payload.teamReport,
-    })
+    // 显式附件优先（门禁的 03/04/05/06/07 文档由 flow-docs 读成 Buffer 后直接传进来）；
+    // 没传时回落到原来的按事件挑选逻辑，保持既有行为不变。
+    const attachments = Array.isArray(payload.attachments)
+      ? payload.attachments
+      : collectAttachments({
+        event,
+        config,
+        agent: payload.agent,
+        errorContext: payload.errorContext,
+        teamReport: payload.teamReport,
+        drafts: payload.drafts,
+      })
 
     const report = {}
     const runIm = async () => {
@@ -124,13 +136,14 @@ export function createNotifier({ getConfig, activity, im, email, logger }) {
       return deliver(event, payload)
     }
 
-    if (strategyOf(event) === 'off') {
+    if (strategyOf(event, payload) === 'off') {
       return { cancel() {}, done: Promise.resolve({}) }
     }
 
     const session = payload.session ?? payload.agent?.session
     const threshold = idleThresholdOf(event)
-    const idle = options.immediate === true || threshold === 0
+    // `once` 用于「超时催办」：deadline 已经到了，不该再等桌面空闲，也不重试。
+    const idle = options.immediate === true || options.once === true || threshold === 0
       ? Number.POSITIVE_INFINITY
       : activity.idleMsOf(session)
     const remaining = Math.max(0, threshold - idle)

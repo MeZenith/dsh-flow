@@ -1,46 +1,90 @@
 {
-  "version": "0.4.0",
-  "updatedAt": "2026-11-26T01:18:43.256Z",
+  "version": "0.5.0",
+  "updatedAt": "2026-11-26T12:48:47.298Z",
   "files": [
     {
       "path": "base.md",
-      "sha256": "d47a8ff131c16cc74ade95a25c7ade5c99349c3c5838f6005926420cb1eb05aa"
+      "sha256": "a894931bcbc541487a6eefb47822927238e8dc44e4252c36cf526532fa7794bc"
+    },
+    {
+      "path": "docs/01-requirements.md",
+      "sha256": "fe39427e96cb608a3fdfdfaf5f2238dbdad3ad0109d9f449f591d18c45d29e3f"
+    },
+    {
+      "path": "docs/02-research.md",
+      "sha256": "bebd9c2793407c117a827ea5711fdfa30a3e6c1797251e3f7ccd6458b239a910"
+    },
+    {
+      "path": "docs/03-tech-and-env.md",
+      "sha256": "66368ad91a999546fb84f8befb13365a7c41ac8a625284b62e8e081f441ba35c"
+    },
+    {
+      "path": "docs/04-ui-spec.md",
+      "sha256": "730d5f89fdb81fcc9e32825a8cc425e8a45443b6142744efd760b524bc52cf86"
+    },
+    {
+      "path": "docs/05-dev-spec.md",
+      "sha256": "b1e7011a673abf47788adee557a2531bc4cb3fd2687c521862fac1b305fc7332"
+    },
+    {
+      "path": "docs/06-blackbox-qa.md",
+      "sha256": "17b08a9a615c7bf8c193b68213c4e78f8ae57acbe2847e0300a6d3e786ff585a"
+    },
+    {
+      "path": "docs/07-whitebox-qa.md",
+      "sha256": "1e07b7cc4d65b31ee15bfa1e7eba6c2a38e904dc0c0d36a847332607b12d2fbf"
     },
     {
       "path": "modes/build.md",
-      "sha256": "c1d534af20e1be9254eab7bdce4cd9f0c495c6cc7ce4703f89f0fead3051cea5"
+      "sha256": "51a24cd3138c510fb3b7964fe38b8053f58698aa2a936cd7fb057705bd655c15"
     },
     {
       "path": "modes/flow.md",
-      "sha256": "4bdac96a5d65b697e4eaeefb580b60169b2a6e7042560d0bc1899a11b32e331a"
+      "sha256": "cc9e42c5af4cb7f670092ceee18b1ab2a898903a552e2588792dffd918376753"
     },
     {
       "path": "modes/plan-ultra.md",
-      "sha256": "09152b3124e88923de0374c6e6a4fae7615514f9a687679eff742c3313d045cf"
+      "sha256": "bca3314dc5077f2236f82654065d1d49ec50f52861c2efa1d890c0bd74edc540"
     },
     {
       "path": "modes/plan.md",
-      "sha256": "b9c24315b560a160d387f277bfdeb35b7588a32ae25ffa226c3b20d0b73b3f7a"
+      "sha256": "5ba774e42d55145241f62727f997609df259ab773659803bfa6b87e949b5ffb2"
     },
     {
       "path": "modes/review.md",
-      "sha256": "8f4d799c098bd890714f0ce9d02a048f57b28698fd5b517a36aff3f77a3689b5"
+      "sha256": "3507026ffb7ee54ea6243a0e390de8e00fc9bccc9da3adfd4f7584364ae705ff"
     },
     {
       "path": "subagents/README.md",
-      "sha256": "246c0748ab5d66cc94deb7bc07fff3dd339cfb3cadd93e539a5b675600b915bb"
+      "sha256": "e00c41da9d1cf6ba9da28899922725fe1d6b43ad4a0ea438f82609c5a3fec30d"
+    },
+    {
+      "path": "subagents/build-worker.md",
+      "sha256": "33bb64c5d6954fda4fbd30740673bdbab80e3b41c4b2a516752a674bab3cebfb"
     },
     {
       "path": "subagents/deep-debugger.md",
       "sha256": "9b509bdfcaaffe3008d7d17170d671285b129070c7b3f399884d97628b9771f0"
     },
     {
+      "path": "subagents/plan-auditor.md",
+      "sha256": "5b9b7b2bc37d0fe0e667dd6a6c15756ff652e5fee2fdaede30c2ac6dac76fc7d"
+    },
+    {
       "path": "subagents/product-scout.md",
       "sha256": "d4d565cc5e0c09a861d48ba502c22fab801036281b3c9194d2d918602b3217b4"
     },
     {
+      "path": "subagents/qa-blackbox.md",
+      "sha256": "090255215e1cc06c6c319803f6d7780eabb3d835bb598c6e8499a4f51d4c2200"
+    },
+    {
       "path": "subagents/qa-tester.md",
       "sha256": "744b48a72342980744ac49bc4ff802c5a14ec088b3b914b886376ba94187e852"
+    },
+    {
+      "path": "subagents/qa-whitebox.md",
+      "sha256": "e87f84031b98c194ca28a639418bd85460471aec2e241bbfdfaf7ca1b00daaef"
     },
     {
       "path": "subagents/reverse-engineer.md",
@@ -52,7 +96,7 @@
     },
     {
       "path": "subagents/ui-architect.md",
-      "sha256": "87e138b8144be18ae92e79ec98ef4ae6e9e8d0ee9025586500ac55abac2cf534"
+      "sha256": "e4131ac8d4a09e24fe63c50ab030d29ac3786bab13216bbbc153a457eea9ec84"
     }
   ]
 }

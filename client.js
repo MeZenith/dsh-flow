@@ -1964,6 +1964,82 @@ window.__ModuleLoader__.load({
 
       const gateSpec = value && typeof value.spec === 'object' && value.spec !== null ? value.spec : {}
       const gateBehavior = value && typeof value.behavior === 'object' && value.behavior !== null ? value.behavior : {}
+      // v0.5.0：文档与门禁设置
+      const docsCfg = value && typeof value.docs === 'object' && value.docs !== null ? value.docs : {}
+      const gateCfg = value && typeof value.gate === 'object' && value.gate !== null ? value.gate : {}
+      const uiCfg = value && typeof value.ui === 'object' && value.ui !== null ? value.ui : {}
+      const downloadCfg = value && typeof value.download === 'object' && value.download !== null ? value.download : {}
+
+      const docsLevel = docsCfg.level === 'S' || docsCfg.level === 'L' ? docsCfg.level : 'M'
+      const docsCard = h('div', { className: 'dsh-flow-modecard' },
+        h('span', { className: 'dsh-flow-sub' }, t('docsGate.title')),
+        h('div', { className: 'dsh-flow-grid2' },
+          h('div', { className: 'dsh-flow-field' },
+            h('span', { className: 'dsh-flow-fieldlabel' }, t('docsGate.level')),
+            h(CustomSelect, {
+              value: docsLevel,
+              options: [
+                { value: 'S', label: t('docsGate.levelS') },
+                { value: 'M', label: t('docsGate.levelM') },
+                { value: 'L', label: t('docsGate.levelL') },
+              ],
+              disabled,
+              ariaLabel: t('docsGate.level'),
+              onChange: next => { setField(['docs', 'level'], next) },
+            }),
+            h('span', { className: 'dsh-flow-hint' }, t('docsGate.levelHint')),
+          ),
+          h('div', { className: 'dsh-flow-field' },
+            h('span', { className: 'dsh-flow-fieldlabel' }, t('docsGate.dir')),
+            h(TextField, {
+              value: typeof docsCfg.dir === 'string' ? docsCfg.dir : '',
+              disabled,
+              placeholder: '.flow/docs',
+              onCommit: next => { setField(['docs', 'dir'], next.trim() === '' ? '.flow/docs' : next.trim()) },
+            }),
+            h('span', { className: 'dsh-flow-hint' }, t('docsGate.dirHint')),
+          ),
+        ),
+        h('div', { className: 'dsh-flow-grid2' },
+          h('div', { className: 'dsh-flow-field' },
+            h('span', { className: 'dsh-flow-fieldlabel' }, t('docsGate.timeout')),
+            h(TextField, {
+              value: String(typeof gateCfg.timeoutSeconds === 'number' ? gateCfg.timeoutSeconds : 1800),
+              disabled,
+              onCommit: (next) => {
+                const parsed = Number.parseInt(next, 10)
+                if (Number.isFinite(parsed) && parsed >= 0) setField(['gate', 'timeoutSeconds'], parsed)
+              },
+            }),
+            h('span', { className: 'dsh-flow-hint' }, t('docsGate.timeoutHint')),
+          ),
+          h('div', { className: 'dsh-flow-field' },
+            h('span', { className: 'dsh-flow-fieldlabel' }, t('docsGate.imDigest')),
+            h(TextField, {
+              value: String(typeof gateCfg.imDigestChars === 'number' ? gateCfg.imDigestChars : 200),
+              disabled,
+              onCommit: (next) => {
+                const parsed = Number.parseInt(next, 10)
+                if (Number.isFinite(parsed) && parsed >= 80) setField(['gate', 'imDigestChars'], parsed)
+              },
+            }),
+            h('span', { className: 'dsh-flow-hint' }, t('docsGate.imDigestHint')),
+          ),
+        ),
+        h('div', { className: 'dsh-flow-field' },
+          checkboxRow({
+            label: t('docsGate.uiProbe'),
+            checked: uiCfg.skillProbe !== false,
+            onChange: next => { setField(['ui', 'skillProbe'], next) },
+          }),
+          h('span', { className: 'dsh-flow-hint' }, t('docsGate.uiProbeHint')),
+        ),
+        h('div', { className: 'dsh-flow-notice' },
+          t('docsGate.downloadHint')
+            .replace('{green}', String(typeof downloadCfg.greenMaxMB === 'number' ? downloadCfg.greenMaxMB : 20))
+            .replace('{yellow}', String(typeof downloadCfg.yellowMaxMB === 'number' ? downloadCfg.yellowMaxMB : 300))
+            .replace('{slow}', String(typeof downloadCfg.slowSeconds === 'number' ? downloadCfg.slowSeconds : 60))),
+      )
 
 
       const gatePanel = h('div', { className: 'dsh-flow-panelbody', role: 'tabpanel' },
@@ -2031,6 +2107,7 @@ window.__ModuleLoader__.load({
         ),
         h('div', { className: 'dsh-flow-notice' }, t('gate.promptsDirHint')),
         h('div', { className: 'dsh-flow-notice' }, t('gate.remoteHint')),
+        docsCard,
       )
 
       /* ---------------- Tab 5：熔断与通知 ---------------- */
@@ -2491,6 +2568,21 @@ window.__ModuleLoader__.load({
       'gate.autoCompact': '阶段确认通过后自动压缩上下文',
       'gate.autoCompactHint': '仅在你点「同意」、模式切换完成且本回合结束后触发一次原生压缩；遇到忙碌会自动重试。',
       'gate.remoteHint': '阶段确认通过 DSH 原生提问框；如需转发到微信或飞书，请确保会话已绑定开启双向同步的私聊。',
+      'docsGate.title': '文档与门禁（v0.5.0）',
+      'docsGate.level': '默认任务等级',
+      'docsGate.levelS': 'S 级 · 局部改动',
+      'docsGate.levelM': 'M 级 · 中型功能',
+      'docsGate.levelL': 'L 级 · 从零/重构',
+      'docsGate.levelHint': 'S 级不产编号文档但要做 1 轮交互确认；M 级交 01/03/05/06/07；L 级全套 01–07。可在开局时临时升降级。',
+      'docsGate.dir': '文档目录',
+      'docsGate.dirHint': '相对会话工作目录；只允许写这个目录与 .flow/spec.md，业务代码仍受只读沙箱保护。',
+      'docsGate.timeout': '门禁超时（秒）',
+      'docsGate.timeoutHint': '桌面倒计时；到点只登记票据并催办一次，绝不视为同意。0 表示不设超时。',
+      'docsGate.imDigest': 'IM 摘要字数',
+      'docsGate.imDigestHint': '微信等只发纯文本；票据号与 1/2/3 指引永远排在最前，不受这个上限截断。',
+      'docsGate.uiProbe': '进入 UI 阶段时探测设计 Skill',
+      'docsGate.uiProbeHint': '探测 taste / impeccable 并给分流建议；未安装时给三选一（纯对话，不弹门禁）。',
+      'docsGate.downloadHint': '下载红绿灯（只读）：绿灯 <{green}MB 自主装；黄灯 {green}–{yellow}MB 或慢于 {slow}s 先问；红灯 ≥{yellow}MB 动前必问。改阈值请编辑插件配置（download.*）。',
       'set.add': '新增提示词',
       'set.newName': '未命名提示词',
       'set.name': '名称',
@@ -2673,6 +2765,21 @@ window.__ModuleLoader__.load({
       'gate.autoCompact': 'Compact context after a stage gate is approved',
       'gate.autoCompactHint': 'Compacts once after your approval, the mode switch, and the end of this turn; retries while busy.',
       'gate.remoteHint': 'Remote approval: both the opening route picker and the stage gate use the native question card. To forward them to WeChat / Feishu through dsh-im, bind this session to a two-way synced direct chat.',
+      'docsGate.title': 'Docs & gate (v0.5.0)',
+      'docsGate.level': 'Default task level',
+      'docsGate.levelS': 'S · small change',
+      'docsGate.levelM': 'M · medium feature',
+      'docsGate.levelL': 'L · from scratch / refactor',
+      'docsGate.levelHint': 'S skips numbered docs but still needs one interaction check; M produces 01/03/05/06/07; L produces all 01–07. You can raise or lower it per task.',
+      'docsGate.dir': 'Docs directory',
+      'docsGate.dirHint': 'Relative to the session workspace. Only this directory and .flow/spec.md are writable; product code stays read-only.',
+      'docsGate.timeout': 'Gate timeout (seconds)',
+      'docsGate.timeoutHint': 'Desktop countdown. On expiry it only registers a ticket and pings you once — never treated as consent. 0 disables the timeout.',
+      'docsGate.imDigest': 'IM digest length',
+      'docsGate.imDigestHint': 'IM is text-only; the ticket id and 1/2/3 instructions always come first and are never truncated by this limit.',
+      'docsGate.uiProbe': 'Probe design skills before the UI stage',
+      'docsGate.uiProbeHint': 'Detects taste / impeccable and suggests which to use; when missing it offers three options in plain conversation, no gate.',
+      'docsGate.downloadHint': 'Download traffic lights (read-only): green <{green}MB auto-install; yellow {green}–{yellow}MB or slower than {slow}s asks first; red ≥{yellow}MB always asks. Edit download.* in the plugin config to change thresholds.',
       'set.add': 'Add prompt',
       'set.newName': 'Untitled prompt',
       'set.name': 'Name',

@@ -17,6 +17,8 @@
  */
 import { buildModeText } from './mode-plan.js'
 import { buildSpecNote } from './spec-anchor.js'
+import { docsNote } from './flow-docs.js'
+import { levelOfSession } from './flow-level.js'
 
 /** 全局底座 section 的名字（唯一，重复注册会抛错）。 */
 export const BASE_SECTION = 'flow:base'
@@ -77,7 +79,9 @@ export function attachAgentModeContext(agentCtx, source) {
     // required：即使某个组合关掉了可选 runtime context，模式约束仍然生效。
     required: true,
     interpolate: false,
-    text: () => buildModeText(source.getConfig(), source.getMode(), source.store),
+    text: () => buildModeText(source.getConfig(), source.getMode(), source.store, {
+      sessionId: source.agent?.session?.id,
+    }),
   })
 }
 
@@ -123,5 +127,56 @@ export function attachAgentSpecContext(agentCtx, source) {
   })
 }
 
+/* ------------------------------------------------------------------ *
+ * v0.5.0：编号文档便利贴
+ * ------------------------------------------------------------------ */
+
+/**
+ * 每个 Agent 的文档进度 context 名字。
+ *
+ * 注意：**必须声明在 `PROMPT_NAMES` 之前**。`const` 有 TDZ，模块求值时先引用后声明会抛
+ * `ReferenceError: Cannot access 'DOCS_CONTEXT' before initialization` —— 这种错
+ * `node --check` 查不出来，只有真跑一次 `import()` 才会现形（自检里有专门的导入冒烟用例）。
+ */
+export const DOCS_CONTEXT = 'flow:docs'
+
+/**
+ * 文档便利贴的 order。
+ *
+ * 排在方案锚点（300）之后、模式硬规则（500）之前：先给"在做什么"，再给"文档进度"，
+ * 最后才是"这一步怎么干"。
+ */
+const DOCS_CONTEXT_ORDER = 380
+
 /** 幂等拆除用的名字常量，供调用方核对。 */
-export const PROMPT_NAMES = Object.freeze({ BASE_SECTION, MODE_CONTEXT, SPEC_CONTEXT })
+export const PROMPT_NAMES = Object.freeze({ BASE_SECTION, MODE_CONTEXT, SPEC_CONTEXT, DOCS_CONTEXT })
+
+/**
+ * 为一个 Agent 注册文档进度便利贴。
+ *
+ * **只注入 `docsNote()` 生成的 ≤5 行摘要**（等级 / 已就绪 / 缺哪些 / 门禁要求 / 怎么写），
+ * `prompts/docs/*.md` 的模板正文永远不进系统提示词 —— 那是 `flow_docs_init` 时按需读盘的东西。
+ *
+ * @param {import('@deepseek-ai/cordis').Context} agentCtx `agent.ctx`。
+ * @param {{ agent: object, getConfig: () => object }} source
+ * @returns {() => void} disposer
+ */
+export function attachAgentDocsContext(agentCtx, source) {
+  return agentCtx.systemPrompt.context({
+    name: DOCS_CONTEXT,
+    order: DOCS_CONTEXT_ORDER,
+    required: true,
+    interpolate: false,
+    text: () => {
+      try {
+        const config = source.getConfig()
+        const cwd = source.agent?.session?.header?.cwd
+        if (typeof cwd !== 'string' || cwd === '') return ''
+        const sessionId = String(source.agent?.session?.id ?? '')
+        return docsNote({ config, cwd, level: levelOfSession(config, sessionId) })
+      } catch {
+        return ''
+      }
+    },
+  })
+}

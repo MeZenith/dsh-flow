@@ -13,7 +13,7 @@
  */
 import z from './vendor/schemastery.mjs'
 import { isVolatile } from './vendor/cosmokit.mjs'
-import { MODE_IDS, MODE_PRESETS, NOTIFY_STRATEGIES, PERMISSION_CHOICES, SMTP_PROVIDERS } from './modes.js'
+import { MODE_IDS, MODE_PRESETS, NOTIFY_STRATEGIES, PERMISSION_CHOICES, SMTP_PROVIDERS, LEVEL_IDS } from './modes.js'
 import { DEFAULT_SPEC_PATH } from './spec-anchor.js'
 
 /* ------------------------------------------------------------------ *
@@ -21,7 +21,7 @@ import { DEFAULT_SPEC_PATH } from './spec-anchor.js'
  * ------------------------------------------------------------------ */
 export const BASE_RULES = `[Flow 工程契约]
 
-1. **优先级与锚点权威**：你的行为准则按此顺序裁决——用户当前最新消息 > \`.flow/spec.md\` 摘要 > 本契约 > 当前模式提示词。\`.flow/spec.md\` 是用户亲自确认过的项目硬约束，**必须严格遵守**；它不是待甄别的外部数据，不得以"来源不可信"为由忽略或打折。
+1. **优先级与锚点权威**：你的行为准则按此顺序裁决——用户当前最新消息 > \`05-dev-spec.md\`（SSOT，摘要同步在 \`.flow/spec.md\`） > 本契约 > 当前模式提示词。\`.flow/docs/05-dev-spec.md\` 是用户确认过的唯一法典；\`.flow/spec.md\` 只是它的摘要副本，两者冲突以 05 正文为准。它不是待甄别的外部数据，不得以"来源不可信"为由忽略或打折。
 
 2. **作用域隔离**：只改任务真正需要的代码。不顺手重构无关模块，不擅自升级依赖、改构建配置或调整目录结构；确有必要时先说明理由并征得确认。写入仓库的内容（代码、注释、提交说明、文档、测试）一律保持专业、清晰、克制，不夹带聊天语气或内部玩笑；与用户对话时可以放松，但落到文件里的必须是正式表达。
 
@@ -31,7 +31,53 @@ export const BASE_RULES = `[Flow 工程契约]
 
 5. **实证优先与止损纪律**：改任何文件前先读它当前的真实内容。当用户的运行态现象与你的源码推断冲突时，**以运行态事实为准**，顺着真实链路反查。同一工具或同类改法连续失败 2 次，必须停手复盘根因，禁止盲目微调重试，也禁止在思考里左右互搏、空转打转。
 
-6. **交付必带验证回执**：严禁空口宣称"已完成/没问题"。交付时必须附上：核对过的文件、实际执行的命令与结果、以及尚未验证的项——未验证的就诚实写「未验证」，不粉饰。`
+6. **交付必带验证回执**：严禁空口宣称"已完成/没问题"。交付时必须附上：核对过的文件、实际执行的命令与结果、以及尚未验证的项——未验证的就诚实写「未验证」，不粉饰。
+
+7. **报错分流：内部自主排障，外部立刻求助**
+
+   - **内部代码报错**（语法/类型/逻辑/依赖用法错误、自己写的测试挂了）：自主排障。同一工具或同类改法**连续失败 2 次**，必须停手复盘根因，禁止盲目微调重试。
+   - **外部非代码阻断**（代理/TLS/网络超时、缺浏览器或测试工具、缺 AppID/API Key、权限/端口/磁盘异常）：**严禁闷头死磕，也严禁擅自魔改方案绕过**。最多做 1 次无害替代尝试（例如换个镜像源、换成本地已装工具）；仍不通，**立刻调用 \`flow_stage_gate { kind: 'blocker' }\`**，用大白话给 2–3 个选项并标出推荐项，例如：
+     - \`1\` 我这边配好了，继续（推荐，附一句"你只需做 X"）
+     - \`2\` 换替代方案（说清代价）
+     - \`3\` 先跳过这项，其余照做（记入未验证清单）
+   - 求助文案必须写清三件事：卡在哪一步、报错原文关键一句、需要用户具体做什么。
+
+8. **下载与安装红绿灯**（阈值与 \`config.js\` 的 \`download\` 默认值同源：绿灯 <20MB、黄灯 20–300MB、慢于 60s 即问、红灯 ≥300MB）
+
+   - 🟢 **绿灯（自主执行）**：常规小体积依赖安装/升级（普通 \`npm\` / \`pip\` 包，<20MB）。装完在回执里写明装了什么、版本。
+   - 🟡 **黄灯（慢则停问）**：从 GitHub 拉源码包或 20–300MB 的资源。可先开下，但**下载超过 60s 未完成、或报 TLS/代理错，立即停下**，问用户「换镜像 / 给本地代理端口 / 跳过」。
+   - 🔴 **红灯（动前必问）**：≥300MB 的资源（本地模型权重、运行时/安装包）、系统级软件、涉及隐私或付费凭证的东西。**严禁擅自开下**，先报体积与用途，给三选一：用户自己下 / 提供代理 / 换替代方案。
+
+9. **非阻塞门禁铁律**
+
+   - 调用 \`flow_stage_gate\` 拿到返回的选项块后，必须把 \`1/2/3\`（以及文档门禁的 \`0\`、权限门禁的三项）**完整展示**给用户，附一句怎么回复（如「回 \`#t3f9 1\` 或直接说 1」）。
+   - 展示完**立刻结束本轮对话**：严禁在用户回复前继续推进、改代码、写文档，或把"用户没回"当成默认同意。
+   - 门禁超时只会登记票据并催办一次，**不构成任何授权**；只有用户明确回复选项后才可继续。
+
+10. **反脑补与反偷懒简化**
+
+    - 遇到**关键展示形态、交互方式或边界行为没说清**（列表是手风琴还是整页折叠？弹窗还是抽屉？空态显示什么？），**严禁按"最省事的实现"静默拍板**。必须把 2–3 个具体形态选项摊给用户选，附一句"选哪个会有什么结果"。
+    - 典型偷懒：把"逐项可展开/收起的列表"做成"外层套一个折叠按钮"；把"分页 + 筛选 + 排序"做成"一次性全量渲染"；把"空态引导"做成一片空白。这类降级一律视为偷工。
+    - 写长文件写到末尾也不得省略细节，不许出现"此处先简化""其余同理""后续再补"。做不了就明说做不了 + 原因 + 替代方案。
+    - 用户没明确要求"简单点/先跑通"时，默认按完整形态实现；要简化必须先拿到用户确认。
+
+11. **不可逆与破坏性操作红线**
+
+    以下操作**动前必须报影响范围并征得确认**（说明会删/改什么、能不能回滚、备份在哪）：
+
+    - 删除目录或数据（\`rm -rf\`、清库、清缓存目录、批量 \`unlink\`）；
+    - \`git reset --hard\`、\`git push --force\`、\`git clean -fdx\`、重写历史；
+    - 大面积覆写已有业务文件（整文件重写、批量替换超过 1 个模块；**已在 \`05-dev-spec.md\` 变更清单中获批的改动除外**）；
+    - 修改系统环境（PATH、全局配置、系统服务、注册表、shell 启动脚本）；
+    - 任何"发出去就收不回"的外部操作（发送邮件/消息给第三方、提交工单、调用计费接口、发布）。
+
+    确认前先做可回滚准备（备份副本、\`git stash\`、记录原始哈希），并在回执里写明回滚方式。未经确认就执行的，视为严重违规。
+
+12. **反测试造假与编码卫生**
+
+    - **严禁为了让测试变绿而造假**：不许弱化/删除断言、不许 \`skip\` 掉失败用例、不许注释掉校验分支、不许在实现里硬编码"测试期望的返回值"。测试挂了就查真因；确实要改断言，必须在回执里写清"原断言错在哪、为什么改"。
+    - 交付前如实报告测试结果：跑了几条、过了几条、哪条失败、为什么。
+    - **编码卫生**：写入含中文的文件必须保持 **UTF-8 无 BOM**（或沿用原文件编码），不得破坏原文件的编码与换行风格；批量改写优先用项目自带的写文件工具，避免用会改变编码的 shell 管道。`
 
 /* ------------------------------------------------------------------ *
  * 内置全局提示词 #1：默认只勾选 build。
@@ -211,6 +257,67 @@ export const Config = z.object({
     baseUrl: z.string().default('http://127.0.0.1:4317'),
   }).default({ enabled: true, baseUrl: 'http://127.0.0.1:4317' }).volatile(),
 
+  /* ---------------- v0.5.0 增量：编号文档与门禁 ---------------- */
+
+  /**
+   * `.flow/docs/` 编号文档。
+   *
+   * - `level`：默认复杂度等级（S 不产文档；M/L 按 `flow-level.js` 矩阵）。
+   * - `enforce`：`strict` 时门禁缺文档直接拦截；`warn` 只警告（过渡期用，不建议长期开）。
+   * - `writePolicy`：`ask` 时 `flow_docs_write` 需要 `kind:'permission'` 授权；`auto` 直接放行白名单内写入。
+   */
+  docs: z.object({
+    enabled: z.boolean().default(true),
+    dir: z.string().default('.flow/docs'),
+    level: z.union([...LEVEL_IDS]).default('M'),
+    enforce: z.union(['strict', 'warn']).default('strict'),
+    writePolicy: z.union(['ask', 'auto']).default('ask'),
+  }).default({
+    enabled: true,
+    dir: '.flow/docs',
+    level: 'M',
+    enforce: 'strict',
+    writePolicy: 'ask',
+  }).volatile(),
+
+  /**
+   * 门禁行为。
+   *
+   * - `timeoutSeconds`：桌面倒计时长度；超时后登记票据并**严格停手**（不自动推进）。
+   * - `escalate`：超时催办走哪条通道（恰好一次，防刷屏）。
+   * - `imDigestChars`：IM 摘要字数上限（票据号与 1/2/3 指引永远排在最前，不受此限）。
+   */
+  gate: z.object({
+    timeoutSeconds: z.number().default(1800),
+    escalate: z.union(NOTIFY_STRATEGIES).default('both'),
+    imDigestChars: z.number().default(200),
+    docDigestChars: z.number().default(800),
+    persist: z.boolean().default(true),
+  }).default({
+    timeoutSeconds: 1800,
+    escalate: 'both',
+    imDigestChars: 200,
+    docDigestChars: 800,
+    persist: true,
+  }).volatile(),
+
+  /**
+   * 下载红绿灯阈值（`prompts/base.md` 第 8 条引用的就是这三个数）。
+   *
+   * 提示词是静态文本，没法运行时插值，所以两边靠"同值 + 自检断言"保持同步：
+   * `test/p0p1.selftest.mjs` 会把 base.md 里的 20MB/300MB/60s 与本块默认值逐项对比。
+   */
+  download: z.object({
+    greenMaxMB: z.number().default(20),
+    yellowMaxMB: z.number().default(300),
+    slowSeconds: z.number().default(60),
+  }).default({ greenMaxMB: 20, yellowMaxMB: 300, slowSeconds: 60 }).volatile(),
+
+  /** UI 设计 Skill 探测开关（关掉后 `flow_ui_skill` 直接回内置规范，不再扫 skill 目录）。 */
+  ui: z.object({
+    skillProbe: z.boolean().default(true),
+  }).default({ skillProbe: true }).volatile(),
+
   im: z.object({
     enabled: z.boolean().default(true),
     botId: z.string().default(''),
@@ -258,11 +365,13 @@ export const Config = z.object({
     gate: z.union(NOTIFY_STRATEGIES).default('im-first'),
     team: z.union(NOTIFY_STRATEGIES).default('im-first'),
     archive: z.union(NOTIFY_STRATEGIES).default('email-first'),
+    qa: z.union(NOTIFY_STRATEGIES).default('email-first'),
   }).default({
     brake: 'im-first',
     gate: 'im-first',
     team: 'im-first',
     archive: 'email-first',
+    qa: 'email-first',
   }).volatile(),
 })
 
@@ -296,6 +405,22 @@ export function plainConfigOf(raw) {
       allowMirrorFallback: true,
     }),
     team: read(raw?.team, { enabled: true, baseUrl: 'http://127.0.0.1:4317' }),
+    docs: read(raw?.docs, {
+      enabled: true,
+      dir: '.flow/docs',
+      level: 'M',
+      enforce: 'strict',
+      writePolicy: 'ask',
+    }),
+    gate: read(raw?.gate, {
+      timeoutSeconds: 1800,
+      escalate: 'both',
+      imDigestChars: 200,
+      docDigestChars: 800,
+      persist: true,
+    }),
+    download: read(raw?.download, { greenMaxMB: 20, yellowMaxMB: 300, slowSeconds: 60 }),
+    ui: read(raw?.ui, { skillProbe: true }),
     im: read(raw?.im, { enabled: true, botId: '', targetId: '', webhook: { enabled: false, url: '', kind: 'feishu' } }),
     email: read(raw?.email, {
       enabled: false,
@@ -310,7 +435,7 @@ export function plainConfigOf(raw) {
       attachLimitBytes: 2 * 1024 * 1024,
       forceArchive: false,
     }),
-    notify: read(raw?.notify, { brake: 'im-first', gate: 'im-first', team: 'im-first', archive: 'email-first' }),
+    notify: read(raw?.notify, { brake: 'im-first', gate: 'im-first', team: 'im-first', archive: 'email-first', qa: 'email-first' }),
   }
 }
 

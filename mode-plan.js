@@ -9,6 +9,7 @@
  * @module dsh-flow/mode-plan
  */
 import { isPromptMode, modeConfigOf } from './modes.js'
+import { gateRequiredDocs, levelDef, levelOfSession, notifyNodesOf } from './flow-level.js'
 
 /** 拼接顺序分隔：空行。 */
 const JOINER = '\n\n'
@@ -17,20 +18,48 @@ const JOINER = '\n\n'
 const ROSTER_MODES = new Set(['flow', 'plan-ultra'])
 
 /**
+ * 生成"当前等级 + 必做文档 + 门禁要求"的动态块。
+ *
+ * **唯一来源是 `flow-level.js`**：提示词正文里不写死文档清单，页面注入什么就按什么做；
+ * 这样改等级矩阵只需改一处，不会出现"提示词要 01–05、门禁只查 03"的漂移。
+ *
+ * @param {object} config 插件配置。
+ * @param {string} [sessionId] 会话 ID（用于读取用户选定/升降过的等级）。
+ * @returns {string} 形如 `[Flow 等级与文档] …` 的多行文本；S 级也返回（说明不需要文档）。
+ */
+export function buildLevelBlock(config, sessionId) {
+  const level = levelOfSession(config, sessionId)
+  const def = levelDef(level)
+  const docs = def.docs.length === 0 ? '无（S 级不产编号文档）' : def.docs.join(' ')
+  const buildGate = gateRequiredDocs({ level, kind: 'stage', nextMode: 'build' })
+  const acceptGate = gateRequiredDocs({ level, kind: 'acceptance' })
+  const notify = notifyNodesOf(level)
+  return [
+    `[Flow 等级与文档] 等级 ${def.id}｜人工停点 ${def.stops} 次`,
+    `必做文档：${docs}`,
+    buildGate.length === 0 ? '切 Build 门禁：S 级不校验文档' : `切 Build 前必须齐备：${buildGate.join(' ')}`,
+    acceptGate.length === 0 ? '验收门禁：S 级不校验文档' : `验收门禁必须齐备：${acceptGate.join(' ')}`,
+    notify.length === 0 ? '通知节点：无（S 级不发通知）' : `通知节点：${notify.join(' / ')}（03 起主动投递文档）`,
+    '写文档前先 flow_docs_check 自检；缺文档门禁会直接拦下。',
+  ].join('\n')
+}
+
+/**
  * 计算某个模式要注入的运行时上下文正文。
  *
- * 顺序：先按 promptSets 声明顺序拼接“已启用且勾选了该模式”的全局提示词，
- * 再接当前模式的专属提示词，最后（仅 flow / plan-ultra）附上特种兵花名册 ——
- * 模式硬规则压在人设之后，语义优先级更高；花名册放最后，方便按需翻阅。
+ * 顺序：先按 promptSets 声明顺序拼接"已启用且勾选了该模式"的全局提示词，
+ * 再接当前模式的专属提示词，然后（仅 flow / plan-ultra）附上特种兵花名册，
+ * 最后追加等级/文档/门禁动态块（与 `flow-level.js` 同源）。
  *
  * 防御：`off`、未配置的模式、空正文、非字符串输入一律安全退化为 `''`。
  *
  * @param {object} config 已校验的插件配置（可能被部分覆盖）。
  * @param {string} modeId 当前模式。
  * @param {{ mode?: Function, roster?: Function }} [store] 提示词仓库。
+ * @param {{ sessionId?: string }} [context] 会话上下文（用于等级）。
  * @returns {string} 可直接作为 systemPrompt.context 文本的字符串；空串表示不注入。
  */
-export function buildModeText(config, modeId, store) {
+export function buildModeText(config, modeId, store, context = {}) {
   if (!isPromptMode(modeId)) return ''
 
   const parts = []
@@ -55,6 +84,9 @@ export function buildModeText(config, modeId, store) {
     const roster = store.roster().trim()
     if (roster !== '') parts.push(roster)
   }
+
+  const levelBlock = buildLevelBlock(config, context?.sessionId)
+  if (levelBlock !== '') parts.push(levelBlock)
 
   return parts.join(JOINER)
 }

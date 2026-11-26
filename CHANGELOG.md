@@ -8,6 +8,35 @@
 
 暂无。
 
+## [0.5.0] - 2026-11-26
+
+从"提示词流程"升级为**工程级 SOP 编排引擎**：分级、编号文档、可遥控门禁、派单白名单与双阶验收全部落到代码与自检里。
+
+### Added
+
+- **S / M / L 复杂度分级**：`flow-level.js` 持有唯一矩阵（S 不产编号文档但强制 1 轮交互确认；M 交 01/03/05/06/07；L 交全套 01–07），路由工具与门禁都读它。
+- **`.flow/docs/` 七份编号文档与 SSOT**：`flow-docs.js` + 7 份模板（`prompts/docs/*`），`05-dev-spec.md` 为唯一法典；`flow_docs_init` / `flow_docs_check` / `flow_docs_write` 三个工具负责骨架、校验与受控写入。
+- **桌面 / IM 统一遥控门禁**：`gate-tickets.js` + `gate-router.js` + `gate-settle.js`，非阻塞建票即返回，桌面回 `1/2/3`、IM 回 `#票据号 1 意见` 都能结算；超时只登记票据并催办一次，绝不视为同意。
+- **R7 草稿先行**：申请写文档授权必须带 `draftContent`，草稿只进内存与邮件 `.draft.md` 附件、不落盘；IM 回 `0` 时未落盘会自动回退读草稿。
+- **UI 设计 Skill 探测**：`flow-ui-skill.js` + `flow_ui_skill` 工具，识别 `taste` / `impeccable` 并给分流建议，未装时给纯对话三选一（不弹门禁）。
+- **派单声明与白名单**：`dispatch-declare.js` + `flow_dispatch_declare`，真实探测派单工具 / 只读能力 / `agentPreset` 列表，校验共享入口保护与路径 glob 重叠，输出固定 `[调度声明]` 一行；M/L 进入施工未声明即拦截。
+- **黑盒 → 白盒双阶验收**：`qa-handoff.js` + `flow_qa_handoff`，06 症状 → 白盒简报 → 06+07 修复包，返工 1–3 轮放行、第 4 轮硬拦；qa 通知正文置顶 🔴 阻塞项与人工点验清单，附件带两份报告。
+- **设置页新增「文档与门禁」卡片**（第 3 个 Tab 内）：默认等级、文档目录、门禁超时、IM 摘要字数、UI Skill 探测开关与下载红绿灯只读展示，中英文案齐备。
+
+### Changed
+
+- `base.md` / `BASE_RULES` 扩到 **12 条**：新增报错分流、下载红绿灯、非阻塞门禁、反脑补、不可逆操作红线、反测试造假与编码卫生。
+- 6 份模式提示词重写：Flow 全程留在 Flow（`nextMode:'flow'`），内联需求/落盘/施工/验收细则；Plan 补 5 维追问与正反示范；Review 拆成 06/07 两套格式。
+- 10 份子代理提示词统一以【子代理硬隔离尾注】收尾（禁调 `flow_*`、禁套娃、禁直接问用户）。
+- `types`：`GATE_NEXT_MODES` 增加 `flow`；新增 `download` / `ui` / `docs` / `gate` 配置块与 `notify.qa`。
+- 提示词清单升级到 `manifest.json@0.5.0`（24 个文件，含 7 份文档模板），与 `prompt-updater` 白名单交叉断言。
+
+### Fixed
+
+- 修复 `prompt-bridge.js` 的 `DOCS_CONTEXT` TDZ 导入崩溃（新增真实 `import()` 冒烟用例兜底）。
+- 修复"IM 迟到答复只改票据状态、不落授权/不切模式"的连体问题，副作用统一收敛到结算器。
+- 修复 `.gitignore` 白名单模式下新模块被静默忽略的问题。
+
 ## [0.4.0] - 2026-11-25
 
 以 Markdown 文件化提示词库与可视化提示词管理为核心的版本。

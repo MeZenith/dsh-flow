@@ -12,11 +12,13 @@
  * @module dsh-flow/commands
  */
 import {
-  MODE_OFF, modeConfigOf, parseModeArg,
+  MODE_OFF, modeConfigOf, normalizeDocId, parseModeArg,
 } from './modes.js'
 import { applyModeSwitch } from './switch-mode.js'
 import { inspectSpec } from './spec-anchor.js'
 import { COMPACT_MESSAGES } from './compact-bridge.js'
+import { checkDocs, digestOf, docTitle, ensureDocs } from './flow-docs.js'
+import { levelDef } from './flow-level.js'
 
 /** 命令名（不含斜杠）。 */
 export const COMMAND_NAME = 'flow'
@@ -50,12 +52,118 @@ function formatBytes(bytes) {
  * }} deps
  * @returns {object} 交给 `ctx.commands.register()` 的定义。
  */
-export function createFlowCommand({ ctx, getConfig, readMode, bridge, logger, breaker, im, email, prompts }) {
+export function createFlowCommand({ ctx, getConfig, readMode, bridge, logger, breaker, im, email, prompts, tickets, settler }) {
   /** 当前模式的回执文案。 */
   function statusText(agent, config) {
     const current = readMode(agent.session)
     const label = current === MODE_OFF ? '普通模式（off）' : modeConfigOf(config, current).label
     return `Flow 当前模式：${label}｜可选：${choicesText()}`
+  }
+
+  /** `/flow gate …`：门禁票据的桌面兜底入口。 */
+  async function gateText(agent, arg) {
+    if (tickets === undefined) return { kind: 'error', text: '门禁票据未装配（v0.5.0 未启用）。' }
+    const sessionId = String(agent.session?.id ?? '')
+    const cwd = String(agent.session?.header?.cwd ?? '')
+    const parts = arg.split(/\s+/).filter(Boolean)
+    const sub = (parts[1] ?? 'list').toLowerCase()
+
+    if (sub === 'list' || sub === '?') {
+      const rows = tickets.list({ sessionId })
+      if (rows.length === 0) return { kind: 'success', text: '当前会话没有门禁票据。' }
+      const lines = rows.slice(0, 12).map((item) => {
+        const mark = item.hold === true ? '⏸hold' : item.state
+        const opts = item.options.map((option, index) => `${index + 1}=${option.label}`).join(' ')
+        return `#${item.id}｜${mark}｜${item.kind}｜${item.project}｜${opts}`
+      })
+      lines.push('', '用法：/flow gate answer <id> <1|2|3> [意见]｜/flow gate skip <id>｜/flow gate doc <id>｜/flow gate release <id>')
+      return { kind: 'success', text: lines.join('\n') }
+    }
+
+    const id = String(parts[2] ?? '').replace(/^#/, '')
+    const ticket = tickets.find(id, cwd)
+    if (ticket === undefined) return { kind: 'error', text: `没找到票据 #${id || '(缺 id)'}。` }
+
+    if (sub === 'doc') {
+      const ids = Array.isArray(ticket.docIds) ? ticket.docIds : []
+      if (ids.length === 0) return { kind: 'success', text: `#${ticket.id} 没有关联文档。` }
+      const maxChars = Number(getConfig()?.gate?.docDigestChars)
+      const { text } = digestOf({
+        config: getConfig(),
+        cwd: ticket.cwd,
+        ids,
+        maxChars: Number.isFinite(maxChars) && maxChars > 0 ? Math.floor(maxChars) : 800,
+      })
+      return { kind: 'success', text: `#${ticket.id} 文档摘要：\n${text}` }
+    }
+
+    if (sub === 'release') {
+      const released = tickets.releaseHold(sessionId)
+      return released > 0
+        ? { kind: 'success', text: `已解除 ${released} 张票据的 hold，仍等你决定（不会自动推进）。` }
+        : { kind: 'success', text: '没有处于 hold 的票据。' }
+    }
+
+    // answer / skip：走结算器（授权与切模式都由它执行，命令不再自己写状态）
+    const token = sub === 'skip' ? '2' : String(parts[3] ?? '1')
+    const note = parts.slice(sub === 'skip' ? 3 : 4).join(' ')
+    const index = Number(token) - 1
+    const option = Array.isArray(ticket.options) ? ticket.options[index] : undefined
+    if (option === undefined) {
+      const map = ticket.options.map((item, i) => `${i + 1}=${item.label}`).join(' ')
+      return { kind: 'error', text: `#${ticket.id} 没有第 ${token} 个选项。可用：${map}` }
+    }
+    if (settler === undefined) {
+      return { kind: 'error', text: '结算器未装配，无法执行门禁决定。' }
+    }
+    const settled = await settler.settle(ticket.id, { action: option.action, by: 'cmd', note })
+    if (settled.ok !== true && settled.already !== true) {
+      return { kind: 'error', text: settled.reason ?? '结算失败' }
+    }
+    const effect = settled.effects?.scope === 'once' || settled.effects?.scope === 'session-docs'
+      ? '（授权已生效）'
+      : settled.effects?.mode?.applied === true ? `（已切到 ${settled.effects.mode.label ?? settled.effects.mode.mode}）` : ''
+    // 门禁已改非阻塞：命令结算后没人再往前推，所以把决定写成模型能直接照办的块，
+    // 而不是一句"已记录"就完事。
+    return {
+      kind: 'success',
+      text: [
+        `[Flow 门禁决定·桌面命令]`,
+        `票据 #${ticket.id}｜选项：${option.label}（action=${option.action}）`,
+        `附带指令（原样，来自用户）：${note === '' ? '（无）' : note}`,
+        '要求：先落实附带指令，再按该选项对应的阶段动作推进；两者冲突时以附带指令为准，并说明你的取舍。',
+        effect === '' ? '' : `状态：${effect.replace(/[（）]/g, '')}`,
+      ].filter(line => line !== '').join('\n'),
+    }
+  }
+
+  /** `/flow docs …`：编号文档的桌面入口。 */
+  function docsText(agent, arg, config) {
+    const cwd = String(agent.session?.header?.cwd ?? '')
+    const parts = arg.split(/\s+/).filter(Boolean)
+    const sub = (parts[1] ?? 'list').toLowerCase()
+    const level = String(config?.docs?.level ?? 'M').toUpperCase()
+    const ids = levelDef(level).docs
+
+    if (sub === 'init') {
+      const result = ensureDocs({ config, cwd, ids })
+      return {
+        kind: result.errors.length === 0 ? 'success' : 'error',
+        text: [
+          result.created.length === 0 ? '新建：无' : `新建：${result.created.join(' ')}`,
+          result.skipped.length === 0 ? '已存在：无' : `已存在跳过：${result.skipped.join(' ')}`,
+          result.errors.length === 0 ? '' : `失败：${result.errors.map(item => `${item.id}(${item.reason})`).join('；')}`,
+        ].filter(Boolean).join('\n'),
+      }
+    }
+
+    const wanted = parts[1] !== undefined && normalizeDocId(parts[1]) !== null ? [normalizeDocId(parts[1])] : ids
+    const checked = checkDocs({ config, cwd, ids: wanted, level })
+    const lines = checked.items.map(item => (item.ok
+      ? `✓ ${item.id} ${docTitle(item.id)}（${item.bytes} B）`
+      : `✗ ${item.id} ${docTitle(item.id)}：${item.reasons.join('；')}`))
+    lines.push('', checked.ok ? `全部就绪（等级 ${level}）。` : `还缺 ${checked.failed.join(' ')}。`)
+    return { kind: checked.ok ? 'success' : 'error', text: lines.join('\n') }
   }
 
   /** `/flow spec`：只看方案锚点状态，不读盘两次（inspectSpec 内部有缓存）。 */
@@ -108,8 +216,8 @@ export function createFlowCommand({ ctx, getConfig, readMode, bridge, logger, br
   return {
     definitionId: COMMAND_ID,
     name: COMMAND_NAME,
-    description: '切换 Flow 工作流模式（off / plan / plan-ultra / build / review / flow），或用 spec / compact 查看方案锚点与手动压缩，prompts list|update 查看与更新提示词库，retry / escalate / resume 处理熔断，notify-test 自检通知链路',
-    input: { hint: '<mode> | status | spec | compact | prompts list|update | retry | escalate | resume | notify-test' },
+    description: '切换 Flow 工作流模式（off / plan / plan-ultra / build / review / flow），或用 spec / compact 查看方案锚点与手动压缩，prompts list|update 查看与更新提示词库，gate list|answer|skip|doc|release 处理门禁票据，docs list|check|init 管理编号文档，retry / escalate / resume 处理熔断，notify-test 自检通知链路',
+    input: { hint: '<mode> | status | spec | compact | prompts list|update | gate list|answer|skip|doc|release | docs list|check|init | retry | escalate | resume | notify-test' },
     // 保留 args：`flowMode` 投影正是从 command/run 的 args 派生当前模式。
     recordInput: true,
 
@@ -117,6 +225,10 @@ export function createFlowCommand({ ctx, getConfig, readMode, bridge, logger, br
       const config = getConfig()
       const arg = typeof rawInput === 'string' ? rawInput.trim().toLowerCase() : ''
       const head = arg.split(/\s+/)[0] ?? ''
+
+      // ---- v0.5.0：门禁票据与编号文档 ----
+      if (head === 'gate') return await gateText(agent, arg)
+      if (head === 'docs') return docsText(agent, arg, config)
 
       // ---- 只读：查看方案锚点 ----
       if (head === 'spec') return { kind: 'success', text: specText(agent, config) }

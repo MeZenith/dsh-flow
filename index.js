@@ -16,7 +16,7 @@ import { Config, plainConfigOf } from './config.js'
 import { createFlowCommand } from './commands.js'
 import { createCompactBridge } from './compact-bridge.js'
 import { createModeProjection, modeOfSession } from './mode-projection.js'
-import { attachAgentModeContext, attachAgentSpecContext, installBaseSection } from './prompt-bridge.js'
+import { attachAgentDocsContext, attachAgentModeContext, attachAgentSpecContext, installBaseSection } from './prompt-bridge.js'
 import { createPromptStore } from './prompt-store.js'
 import { createPromptApi, API_PREFIX } from './prompt-api.js'
 import { DEFAULT_SOURCE_URL, formatUpdateResult, updatePrompts } from './prompt-updater.js'
@@ -28,6 +28,10 @@ import { createCircuitBreaker } from './circuit-breaker.js'
 import { createEmailChannel } from './notify-email.js'
 import { createImChannel } from './notify-im.js'
 import { createNotifier } from './notify.js'
+import { createGateTickets } from './gate-tickets.js'
+import { createGateRouter } from './gate-router.js'
+import { createGateSettler } from './gate-settle.js'
+import { createUiSkillProbe } from './flow-ui-skill.js'
 import { createTeamWatcher } from './team-sse.js'
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -265,6 +269,62 @@ export function apply(ctx, config) {
     const breaker = createCircuitBreaker({ ctx: scoped, getConfig, notifier, logger, readMode, im: imChannel, diagSink: diag })
     scoped.effect(() => () => breaker.dispose(), 'flow: circuit breaker')
 
+    // ---- 2c. v0.5.0：门禁票据 + 跨会话遥控 ----
+    // 票据是跨会话的唯一凭据：桌面倒计时、IM 遥控、超时催办都围绕它对齐。
+    const tickets = createGateTickets({ getConfig, logger: scoped.logger, diag })
+    scoped.effect(() => () => tickets.dispose(), 'flow: gate tickets')
+
+    /** 按 sessionId 找活跃 Agent（门禁决定要投递给桌面会话，而不是当前 IM 会话）。 */
+    const resolveAgent = (sessionId) => {
+      const key = String(sessionId ?? '')
+      if (key === '') return undefined
+      try {
+        const direct = scoped.agents.get(key)
+        if (direct !== undefined && direct !== null) return direct
+      } catch { /* 注册表可能没有 get，退回遍历 */ }
+      try {
+        return scoped.agents.list().find(agent => String(agent?.session?.id ?? '') === key)
+      } catch {
+        return undefined
+      }
+    }
+
+    // 结算执行器：桌面点选 / IM 抢先 / IM 迟到 / 命令 全走同一条副作用路径（授权与切模式）。
+    // `switchMode` 在本作用域稍后才初始化，这里用箭头延迟取值，调用时已完成赋值。
+    const settler = createGateSettler({
+      getConfig,
+      switchMode: (agent, modeId, signal) => switchMode(agent, modeId, signal),
+      bridge,
+      notifier,
+      tickets,
+      resolveAgent,
+      logger,
+      diag,
+    })
+
+    // v0.5.0：UI 设计 Skill 探测（一分钟缓存 + 并发去重；服务不可用时诚实降级）。
+    const uiSkills = createUiSkillProbe({
+      getSkills: () => {
+        try { return scoped.get('skills') } catch { return undefined }
+      },
+      getConfig,
+      logger: scoped.logger,
+      diag,
+    })
+    scoped.effect(() => () => uiSkills.invalidate(), 'flow: ui skill probe')
+
+    const gateRouter = createGateRouter({
+      tickets,
+      breaker,
+      im: imChannel,
+      getConfig,
+      resolveAgent,
+      settler,
+      logger,
+      diag,
+    })
+    scoped.effect(() => () => gateRouter.dispose?.(), 'flow: gate router')
+
     // 计数放在 `await next()` 之后：不干扰工具结果提交，也不在 waterfall 内急刹。
     scoped.on('tools/post-execute', async (exec, result, next) => {
       const decision = await next()
@@ -332,15 +392,35 @@ export function apply(ctx, config) {
         () => attachAgentSpecContext(agent.ctx, { agent, getConfig, getMode }),
         'flow: spec context',
       )
+      // v0.5.0：文档进度便利贴（≤5 行；模板正文永不进提示词）。
+      const disposeDocs = agent.ctx.effect(
+        () => attachAgentDocsContext(agent.ctx, { agent, getConfig }),
+        'flow: docs context',
+      )
       // 熔断拦截必须在 Agent 自己的作用域上注册，IM 会话与 preset 隔离域里的会话
       // 才会同样经过这里（否则微信发来的 1/2/3 会绕过 preStep）。
-      const disposePreStep = agent.ctx.on(
-        'agent/pre-step',
-        (payload, next) => breaker.preStep(payload, next),
-      )
-      diag(`attach agent=${id} session=${agent.session?.id ?? '(无 sessionId)'} → 已挂 agent/pre-step`)
+      //
+      // v0.5.0 两条调整：
+      // 1. 门禁遥控（gateRouter）**先于**熔断注册：裸数字歧义时由它拦下并要求 `#票据号`，
+      //    避免「跳过验收」被误当成「熔断重试」。
+      // 2. 子代理会话**不挂**任何遥控拦截：成员会话里的 1/2/3 是它自己的指令，
+      //    吞掉会破坏成员执行（计数仍由 tools/post-execute 全局进行）。
+      const isSubagent = agent.session?.header?.origin === 'subagent'
+      const disposeGateRoute = isSubagent
+        ? undefined
+        : agent.ctx.on('agent/pre-step', (payload, next) => gateRouter.preStep(payload, next))
+      const disposePreStep = isSubagent
+        ? undefined
+        : agent.ctx.on('agent/pre-step', (payload, next) => breaker.preStep(payload, next))
+      diag(`attach agent=${id} session=${agent.session?.id ?? '(无 sessionId)'} origin=${agent.session?.header?.origin ?? 'root'} → ${isSubagent ? '仅计数（子代理不挂遥控）' : '已挂门禁/熔断 pre-step'}`)
+      // UI Skill 探测预热：只读、非阻塞，失败静默，不影响本 Agent 装配。
+      const warmCwd = String(agent.session?.header?.cwd ?? '')
+      if (warmCwd !== '') uiSkills.warm(warmCwd)
+
       agentDisposers.set(id, () => {
-        try { disposePreStep() } catch { /* Agent 已释放 */ }
+        try { disposePreStep?.() } catch { /* Agent 已释放 */ }
+        try { disposeGateRoute?.() } catch { /* Agent 已释放 */ }
+        try { disposeDocs() } catch { /* Agent 已释放 */ }
         try { disposeSpec() } catch { /* Agent 已释放 */ }
         try { disposeMode() } catch { /* Agent 已释放 */ }
       })
@@ -360,6 +440,11 @@ export function apply(ctx, config) {
       logger,
       getUserQuestions: () => questionsHolder.get(),
       notifier,
+      im: imChannel,
+      email: emailChannel,
+      tickets,
+      settler,
+      uiSkills,
     })) {
       scoped.effect(
         () => scoped.tools.register(definition),
@@ -378,6 +463,8 @@ export function apply(ctx, config) {
         breaker,
         im: imChannel,
         email: emailChannel,
+        tickets,
+        settler,
         prompts: {
           store: promptStore,
           update: runPromptUpdate,

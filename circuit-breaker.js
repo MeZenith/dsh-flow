@@ -37,7 +37,7 @@ const MAX_ERRORS = 5
 const SETTLE_TIMEOUT_MS = 8_000
 
 /** 从消息里抽纯文本。 */
-function textOfMessage(message) {
+export function textOfMessage(message) {
   const content = message?.content
   if (typeof content === 'string') return content
   if (!Array.isArray(content)) return ''
@@ -57,7 +57,7 @@ function textOfMessage(message) {
  * @param {string} text 原始文本。
  * @returns {string} 剥离后的文本（可能为空串）。
  */
-function stripImSource(text) {
+export function stripImSource(text) {
   if (typeof text !== 'string' || text === '') return ''
   return text
     // 完整包裹：连同内容一起去掉
@@ -731,9 +731,27 @@ export function createCircuitBreaker({ ctx, getConfig, notifier, logger, readMod
     return next()
   }
 
+  /**
+   * 只读快照：当前处于熔断态的会话。
+   *
+   * 给 `gate-router.js` 做歧义判定用 —— 当"门禁票据"和"熔断登记"同时存在时，
+   * 裸 `1/2/3` 必须拒绝执行并要求带票据号，否则「跳过验收」会被误当成「熔断重试」。
+   * 只返回纯数据（不含 agent 实例），调用方拿不到也不会误操作。
+   *
+   * @returns {{ key: string, project: string, streak: number, at: number }[]}
+   */
+  function listTrips() {
+    return [...tripped.entries()].map(([key, meta]) => ({
+      key,
+      project: String(meta?.project ?? ''),
+      streak: Number(meta?.streak ?? 0),
+      at: Number(meta?.at ?? 0),
+    }))
+  }
+
   function dispose() {
     disposed = true
   }
 
-  return { observe, preStep, retry, escalate, resume, unlock, isLocked, alertTextOf, dispose }
+  return { observe, preStep, retry, escalate, resume, unlock, isLocked, alertTextOf, listTrips, dispose }
 }

@@ -22,6 +22,16 @@
 /** 单条消息长度上限，超出截断（各平台自身也有分段限制）。 */
 const MAX_TEXT = 8_000
 
+/**
+ * IM 是否能携带文件附件。
+ *
+ * 实查结论（`@xmanrui/dsh-im` v5.10.0 `PROACTIVE_DELIVERY.md:355`）：
+ * 「当前主动投递只发送非空文字，不支持在该接口中发送图片、文件、卡片或富文本。」
+ * 所以门禁/文档投递在 IM 侧**只能发控长摘要**，附件一律走 SMTP。这个常量是给
+ * 上层做能力判断用的，别让未来的实现悄悄改成 true 而调用方还在按纯文本处理。
+ */
+export const IM_SUPPORTS_ATTACHMENTS = false
+
 /** dsh-im 投递路由。 */
 const DELIVERY_PATH = '/api/dsh-im/delivery/messages'
 
@@ -265,5 +275,5 @@ export function createImChannel({ ctx, getConfig, logger }) {
     }
   }
 
-  return { send, test, listBots, listTargets, settings }
+  return { send, test, listBots, listTargets, settings, supportsAttachments: IM_SUPPORTS_ATTACHMENTS }
 }

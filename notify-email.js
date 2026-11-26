@@ -228,10 +228,16 @@ export function enforceLimit(attachments, limit) {
 /**
  * 按事件挑选附件。
  *
- * @param {{ event: string, config: object, agent?: object, errorContext?: string, teamReport?: string }} input
+ * 两类来源都支持：
+ * - **磁盘文件**：`.flow/spec.md`、错误上下文、团队报告；
+ * - **内存草稿**：`drafts: [{ filename, content }]`，用于"还没落盘、先给用户看"的方案正文
+ *   （写文档授权门禁、超时催办）。字符串正文会在这里统一转成 Buffer，
+ *   调用方不必关心底层 transport 要的是 Buffer 还是 string。
+ *
+ * @param {{ event: string, config: object, agent?: object, errorContext?: string, teamReport?: string, drafts?: { filename?: string, content?: string|Buffer }[] }} input
  * @returns {{ filename: string, content: Buffer, contentType?: string }[]}
  */
-export function collectAttachments({ event, config, agent, errorContext, teamReport }) {
+export function collectAttachments({ event, config, agent, errorContext, teamReport, drafts }) {
   const out = []
 
   if (event === 'brake' && typeof errorContext === 'string' && errorContext !== '') {
@@ -259,6 +265,18 @@ export function collectAttachments({ event, config, agent, errorContext, teamRep
         contentType: 'text/markdown; charset=UTF-8',
       })
     }
+  }
+
+  for (const draft of Array.isArray(drafts) ? drafts : []) {
+    const raw = draft?.content
+    if (raw === undefined || raw === null) continue
+    const content = Buffer.isBuffer(raw) ? raw : Buffer.from(String(raw), 'utf8')
+    if (content.length === 0) continue
+    out.push({
+      filename: typeof draft?.filename === 'string' && draft.filename.trim() !== '' ? draft.filename.trim() : 'draft.md',
+      content,
+      contentType: 'text/markdown; charset=UTF-8',
+    })
   }
 
   return out

@@ -152,8 +152,8 @@ export const FLOW_TOOL_NAMES = Object.freeze(['flow_choose_route', 'flow_stage_g
 /** `flow_stage_gate` 的 `fromStage` 白名单。 */
 export const STAGE_IDS = Object.freeze(['plan', 'plan-ultra', 'build', 'review'])
 
-/** `flow_stage_gate` 的 `nextMode` 白名单（不含 `flow`：总控模式不是切换目标）。 */
-export const GATE_NEXT_MODES = Object.freeze(['build', 'review', 'plan', 'off'])
+/** `flow_stage_gate` 的 `nextMode` 白名单（含 `flow`：Flow 总控推进内部阶段，不切出模式）。 */
+export const GATE_NEXT_MODES = Object.freeze(['build', 'review', 'plan', 'flow', 'off'])
 
 /** `flow_choose_route` 的 `recommended` 白名单（三选一路线）。 */
 export const ROUTE_CHOICES = Object.freeze(['plan', 'plan-ultra', 'build'])
@@ -170,7 +170,7 @@ export function coerceModeToken(value) {
 export const NOTIFY_STRATEGIES = Object.freeze(['im-first', 'email-first', 'both', 'off'])
 
 /** 四类通知事件。 */
-export const NOTIFY_EVENTS = Object.freeze(['brake', 'gate', 'team', 'archive'])
+export const NOTIFY_EVENTS = Object.freeze(['brake', 'gate', 'team', 'archive', 'qa'])
 
 /** SMTP 服务商预设。 */
 export const SMTP_PROVIDERS = Object.freeze(['qq', 'netease', 'gmail', 'custom'])
@@ -181,4 +181,77 @@ export const NOTIFY_SUBJECT_TAG = Object.freeze({
   gate: '待拍板',
   team: '团队异常',
   archive: '任务完结',
+  qa: '验收报告',
 })
+
+/* ------------------------------------------------------------------ *
+ * v0.5.0 增量常量：复杂度分级 / 文档编号 / 门禁形态 / 遥控令牌
+ * ------------------------------------------------------------------ */
+
+/**
+ * 任务复杂度等级。
+ *
+ * S 级不产编号文档（但必须做 1 轮交互确认），M/L 级按 `flow-level.js` 的矩阵产出文档。
+ * 这里只放 ID，语义与矩阵统一由 `flow-level.js` 持有，避免两处漂移。
+ */
+export const LEVEL_IDS = Object.freeze(['S', 'M', 'L'])
+
+/** 门禁形态。`permission` 用于只读会话申请写文档授权。 */
+export const GATE_KINDS = Object.freeze(['stage', 'blocker', 'acceptance', 'permission'])
+
+/** 门禁选项上限（原生提问卡片可读性上限）。 */
+export const GATE_OPTION_LIMIT = 5
+
+/** 文档编号（顺序即流水线顺序）。 */
+export const DOC_IDS = Object.freeze(['01', '02', '03', '04', '05', '06', '07'])
+
+/** 文档标题与文件名主干；`flow-docs.js` 与提示词共用这一份。 */
+export const DOC_TITLES = Object.freeze({
+  '01': { title: '需求分析说明书', slug: 'requirements' },
+  '02': { title: '同类产品调研', slug: 'research' },
+  '03': { title: '技术方案与环境体检', slug: 'tech-and-env' },
+  '04': { title: 'UI 与交互规范', slug: 'ui-spec' },
+  '05': { title: '最终开发文档（SSOT）', slug: 'dev-spec' },
+  '06': { title: '黑盒测试报告', slug: 'blackbox-qa' },
+  '07': { title: '白盒测试报告', slug: 'whitebox-qa' },
+})
+
+/**
+ * 遥控指令令牌：`1/2/3` 对应门禁选项顺序，`0` 与 `doc` 拉取文档核心章节。
+ *
+ * 为什么不用 4/5：手机上数字最短，且与熔断现有 `1/2/3` 语义不冲突（熔断靠 `#项目名` 消歧）。
+ */
+export const REMOTE_TOKENS = Object.freeze(['1', '2', '3', '0', 'doc'])
+
+/** 门禁票据状态机。 */
+export const GATE_STATES = Object.freeze(['open', 'answered', 'skipped', 'paused', 'denied', 'expired', 'superseded'])
+
+/** 终态：`superseded` 也是终态 —— 被新票顶替的旧票不许再被结算。 */
+export const GATE_FINAL_STATES = Object.freeze(['answered', 'skipped', 'paused', 'denied', 'superseded'])
+
+/** 通知事件增量（v0.5.0）：文档投递与门禁超时催办。 */
+export const NOTIFY_EVENTS_V5 = Object.freeze(['doc', 'gate-timeout'])
+
+/** 新事件的主题标签。 */
+export const NOTIFY_SUBJECT_TAG_V5 = Object.freeze({
+  doc: '文档投递',
+  'gate-timeout': '门禁超时',
+})
+
+/** 文档写授权的会话作用域取值。 */
+export const DOC_GRANT_SCOPES = Object.freeze(['once', 'session-docs', 'deny'])
+
+/** 把所有未知等级归一到 S/M/L（默认 M：宁可多要文档，也不要漏）。 */
+export function normalizeLevel(value, fallback = 'M') {
+  const text = typeof value === 'string' ? value.trim().toUpperCase() : ''
+  return LEVEL_IDS.includes(text) ? text : fallback
+}
+
+/** 校验文档编号；支持 `'03'`、`'3'`、`'03-tech-and-env.md'` 三种写法。 */
+export function normalizeDocId(value) {
+  const text = typeof value === 'string' ? value.trim() : ''
+  if (text === '') return null
+  const head = text.match(/^(0?[1-7])/)?.[1] ?? ''
+  const padded = head.length === 1 ? `0${head}` : head
+  return DOC_IDS.includes(padded) ? padded : null
+}

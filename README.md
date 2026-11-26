@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v0.4.0-2563EB?style=flat-square" alt="Version v0.4.0" />
+  <img src="https://img.shields.io/badge/Version-v0.5.0-2563EB?style=flat-square" alt="Version v0.5.0" />
   <img src="https://img.shields.io/badge/License-PolyForm--NC--1.0.0-EA580C?style=flat-square" alt="License: PolyForm-NC-1.0.0" />
   <img src="https://img.shields.io/badge/Zero--Build-ESM-16A34A?style=flat-square" alt="Zero-Build ESM" />
   <img src="https://img.shields.io/badge/Node-%3E%3D22-339933?style=flat-square" alt="Node >= 22" />
@@ -33,6 +33,20 @@
 * **报错死循环与人机断联**：工具调用连续报错时原地微调参数硬撞墙、白白烧光 Token；一旦你离开电脑，长任务就彻底卡死无人照看。
 
 `dsh-flow` 通过**硬工程契约 + 五段式工作流 + 断路熔断与跨端接管**，把 AI 从“需要时刻盯防的实习生”变成“有纪律、可托管、随时可遥控的工程团队”。
+
+---
+
+### v0.5.0：从"提示词流程"到"工程级 SOP 编排引擎"
+
+这一版把流程从"写在提示词里的建议"变成"有代码、有票据、有验收的机制"：
+
+- **S / M / L 分级**：入口先给复杂度建议（用户可一票升降）。S 级不产编号文档，但强制 1 轮"点哪里 → 看到什么 → 异常怎么显示"的交互确认；M 级交 `01/03/05/06/07`；L 级交全套 `01–07`。矩阵只存在一处（`flow-level.js`），提示词与门禁同源。
+- **`.flow/docs/` 七份编号文档 + SSOT**：`05-dev-spec.md` 是施工期唯一法典，与上游冲突必须写「覆盖 0X §Y，理由…」；`flow_docs_init / check / write` 负责骨架、校验与**白名单受控写入**（只允许 `.flow/docs/**` 与 `.flow/spec.md`，业务代码仍只读）。
+- **纯对话 `1/2/3` 统一门禁**：桌面点选、微信回 `#票据号 1 意见`、`/flow gate answer` 都走同一个结算器。门禁是**非阻塞**的：建票即返回选项块，展示完必须结束本轮；超时只登记票据并**催办一次**，绝不视为同意。用户在 IM 里的附带意见会原样转给桌面会话。
+- **R7 草稿先行**：申请写文档授权时必须先在对话里展示草稿（长稿贴目录+关键决策+风险），并把完整正文作为 `draftContent` 传入；草稿只进内存与邮件 `.draft.md` 附件，授权前**不写任何文件**，IM 回 `0` 也能读到未落盘草稿。
+- **UI 设计 Skill 探测**：进入 UI 阶段先探测 `taste` / `impeccable`，按"新页 vs 老页"给分流建议；没装时给纯对话三选一（装哪个 / 暂不装用内置规范），不弹门禁。
+- **模式 × 特种兵派单**：`flow_dispatch_declare` 真实探测派单工具、只读能力与 `agentPreset` 列表，校验**互不重叠文件白名单**与共享入口保护，输出 `[调度声明]` 一行；M/L 进入施工前没这一行，门禁直接拦。
+- **黑盒 → 白盒双阶验收**：`qa-blackbox` 不看源码出 06（含"待人工点验清单"），`qa-whitebox` 带着症状定因出 07（`文件:行号` + 四项审计）；`flow_qa_handoff` 合并成修复包，返工 **1–3 轮放行、第 4 轮硬拦上报**；qa 通知正文置顶 🔴 阻塞项，附件带两份报告。
 
 ---
 

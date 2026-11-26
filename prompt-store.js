@@ -32,10 +32,14 @@ export const PROMPT_ROOT = fileURLToPath(new URL('./prompts/', import.meta.url))
 /** 需要注入目录摘要的模式。 */
 export const ROSTER_MODES = Object.freeze(['flow', 'plan-ultra'])
 
-/** 官方子代理名单。 */
+/** 官方子代理名单（v0.5.0 增加审计 / 施工 / 双阶验收四员）。 */
 export const OFFICIAL_SUBAGENTS = Object.freeze([
   'product-scout',
+  'plan-auditor',
   'ui-architect',
+  'build-worker',
+  'qa-blackbox',
+  'qa-whitebox',
   'reverse-engineer',
   'deep-debugger',
   'security-auditor',
