@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v0.4.0-2563EB?style=flat-square" alt="Version v0.4.0" />
+  <img src="https://img.shields.io/badge/Version-v0.5.0-2563EB?style=flat-square" alt="Version v0.5.0" />
   <img src="https://img.shields.io/badge/License-PolyForm--NC--1.0.0-EA580C?style=flat-square" alt="License: PolyForm-NC-1.0.0" />
   <img src="https://img.shields.io/badge/Zero--Build-ESM-16A34A?style=flat-square" alt="Zero-Build ESM" />
   <img src="https://img.shields.io/badge/Node-%3E%3D22-339933?style=flat-square" alt="Node >= 22" />
@@ -52,9 +52,28 @@ Unlike generic "please think carefully" prompts, the base contract (`base.md`) s
 
 Most workflow tools interrupt you at every stage transition, which in practice turns you into a confirmation-button operator.
 
-* In **`Flow` managed mode**, the orchestrator asks for **exactly one** human confirmation — when the plan is finalised in **`.flow/spec.md`**;
+* In **`Flow` managed mode**, human stops are **tiered by task level**: 1 for S (interaction shape check), 2 for M (spec approval + acceptance), 3 for L (spec + manual spot-check + acceptance), plus doc-write authorisation. Gates are **non-blocking**: the ticket returns immediately, so you never babysit a modal;
 * Once you approve, the orchestrator **stays online the whole time**: it splits work into file-disjoint subtasks, dispatches subagents as needed, runs the test commands and starts an independent review pass;
 * If the review finds a `Blocker` or `Major` issue, the system **does not interrupt you**: it reworks internally and re-verifies (up to 3 automatic rounds by default), and only reports to you when the acceptance is green.
+
+#### Desktop & WeChat remote-control cheat sheet
+
+Gate tickets look like `#t3f9`. **Desktop**: click the card or run the command. **WeChat / Feishu**: reply with one text line, same syntax.
+
+| What you want | Desktop | WeChat / Feishu |
+|---|---|---|
+| See what needs a decision | card body (`1/2/3` + ticket id) | digest carries the id and options too |
+| Approve and continue | click "agree" or `/flow gate answer t3f9 1` | `#t3f9 1` |
+| Skip this item, keep going | `/flow gate skip t3f9` | `#t3f9 2` |
+| Send back / pause | pick the matching option | `#t3f9 3` |
+| Approve with a change request | `/flow gate answer t3f9 1 use a drawer instead` | `#t3f9 1 use a drawer instead` |
+| Read the doc draft | `0` (falls back to the in-ticket draft) | `#t3f9 0` |
+| After a timeout, think again | `/flow gate release t3f9` (lifts hold only) | `#t3f9 0` then decide |
+| List pending tickets | `/flow gate list` | read the ticket id from the latest gate digest (no list command over IM) |
+| Circuit-breaker rescue | `/flow retry` / `escalate` / `resume` | `1` retry / `2` stronger model / `3` lift + 5-min takeover |
+| Doc-write authorisation | `1` once / `2` this session | `#ticket 1` or `2` |
+
+> A timeout (30 min by default) only registers the ticket and pings you once — it **never approves on your behalf**, and late replies still settle.
 
 #### 3. External Markdown skill library with progressive disclosure (low tokens, unbounded growth)
 
@@ -123,16 +142,20 @@ flowchart LR
 | **`Review`** | Read-only · dual-perspective acceptance | Combines "picky real-user experience" with "cold QA code audit", hunting missing wiring, async re-entrancy, state leakage and privacy leaks, graded as `Blocker / Major / Minor`. |
 | **`Flow`** | Full authority · managed orchestrator | **One approval, fully managed**: after approval it never switches itself away, decomposes and dispatches work, runs the internal rework loop, and triggers archival notices once acceptance is green. |
 
-#### Six built-in specialists (`prompts/subagents/`)
+#### Ten built-in specialists (`prompts/subagents/`)
 
 In `Flow` and `Plan Ultra`, the orchestrator reads and dispatches these experts on demand (extendable under `prompts/custom/subagents/`):
 
 * **`product-scout`** (product and open-source scouting): studies how comparable mature products behave, inventories reusable components and libraries, and eliminates wheel re-invention at the source;
 * **`ui-architect`** (UI layout and interaction design): plans page regions, information hierarchy, control reuse and dark/responsive adaptation, removing "engineering bare-tag stacking";
+* **`plan-auditor`** (read-only three-dimension design auditor): returns a verdict table on architectural coupling, state machines and rollback, and safety/resource release — catching designs that merely look runnable;
+* **`build-worker`** (whitelisted implementer): only touches the files assigned to it, reports out-of-scope needs instead of editing them, and always returns a four-part receipt (changes / commands / out-of-scope / unverified);
 * **`reverse-engineer`** (reverse engineering and low-level analysis): protocol analysis, de-obfuscation, binary/packaged-artifact structure and call-chain reconstruction;
 * **`deep-debugger`** (hard troubleshooting and log forensics): hypothesis-driven diagnosis for repeated errors and intermittent faults, collecting runtime evidence to locate the root cause;
 * **`security-auditor`** (security and concurrency audit): path traversal, privilege boundaries, sensitive-data leakage, async races and resource leaks;
-* **`qa-tester`** (independent adversarial testing): boundary test cases, regression verification and a non-repudiable acceptance report.
+* **`qa-tester`** (independent adversarial testing): boundary test cases, regression verification and a non-repudiable acceptance report;
+* **`qa-blackbox`** (black-box UX tester, no source reading): clicks as a user would and produces symptoms, reproduction steps, evidence and a manual spot-check list — never claiming untested things passed;
+* **`qa-whitebox`** (white-box root-cause analyst): turns 06 symptoms into `file:line` + trigger chains, plus four audits (safety / concurrency-release / orphan modules / missing wiring) and regression points.
 
 ---
 
@@ -224,7 +247,7 @@ prompts/
 ├── modes/                  # five modes: plan / plan-ultra / build / review / flow
 ├── subagents/              # official subagent library (managed read-only source)
 │   ├── README.md           # subagent routing directory
-│   └── *.md                # the six built-in specialist prompts
+│   └── *.md                # the ten built-in specialist prompts
 └── custom/
     └── subagents/          # user extensions and same-name overrides (never touched by updates)
 ```

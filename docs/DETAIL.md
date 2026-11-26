@@ -1,6 +1,6 @@
 # Flow 工作流与提示词管家
 
-给 DSH 加五个快捷工作流模式，并把提示词分三层注入。
+给 DSH 加五个快捷工作流模式，并把提示词分三层注入；v0.5.0 起再叠一层**工程级 SOP 编排**（分级、编号文档、可遥控门禁、派单白名单、双阶验收）。
 
 ## 它能做什么
 
@@ -50,6 +50,35 @@
 每次切换会在对话里留一条命令行记录，这与原生 `/permission` 芯片的行为一致，
 是有意保留的可审计轨迹。
 
+## 命令总览（v0.5.0）
+
+`/flow` 后面的**第一个 token** 决定走哪条子命令。下表与 `commands.js` 的真实实现一一对应：
+
+| 命令 | 作用 | 备注 |
+|---|---|---|
+| `/flow <mode>` | 切换模式 `off` / `plan` / `plan-ultra` / `build` / `review` / `flow` | 与点芯片等价，留审计轨迹 |
+| `/flow` 或 `/flow status` | 回报当前模式与可选项 | 不改状态 |
+| `/flow spec` | 看 `.flow/spec.md` 锚点摘要与大小 | 文件不存在时如实说明 |
+| `/flow compact` | 手动触发一次上下文压缩 | 走压缩桥，失败有回执 |
+| `/flow prompts list` | 列出提示词版本、五模式来源、特种兵清单 | 只读 |
+| `/flow prompts update` | 拉远端提示词库并逐文件校验 sha256 | 不覆盖 `prompts/custom/` |
+| `/flow gate list` | 列出当前会话的门禁票据（状态 / 选项 / 是否 hold） | 卡片消失后仍可查 |
+| `/flow gate answer <票据> <1\|2\|3> [附带意见]` | 结算一张票据；附带意见会原样传给桌面会话 | 与 IM 回 `#票据号 1 意见` 等价 |
+| `/flow gate skip <票据> [附带意见]` | 跳过（等价于选第 2 项） | 跳过项要写进未验证清单 |
+| `/flow gate doc <票据>` | 看该票据关联文档或未落盘草稿的摘要 | 长文按 `gate.docDigestChars` 截断 |
+| `/flow gate release <票据>` | 解除超时后的 hold，**但仍等你决定**，不会自动推进 | 用于"再想想" |
+| `/flow docs init` | 按当前等级生成缺失的文档骨架 | 只写模板，无需授权 |
+| `/flow docs`（也可写 `/flow docs list`） | 逐份校验全部必做文档，缺章节会点名 | 默认子命令就是校验 |
+| `/flow docs 05` | 只校验指定编号 | 传编号即单份模式 |
+| `/flow retry` / `/flow escalate` / `/flow resume` | 熔断三件套：重试 / 换救场模型重试 / 解除暂停 | 与 IM `1/2/3` 同义 |
+| `/flow notify-test` | 自检 IM 与邮件通道，回报实际走的链路 | 排障用 |
+
+> **尚未提供**：`/flow level s|m|l`、`/flow dispatch`、`/flow gate extend`。
+> 现在的等价做法是——等级通过 `flow_choose_route` 或门禁的 `level` 参数设置；
+> 派单通过 `flow_dispatch_declare` 工具；票据超时后用 `/flow gate release` 解除 hold 再重新决定。
+> 这三条命令已列入后续版本，落地前不在文档里冒充"可用"。
+
+
 ## 版本演进
 
 | 版本 | 主题 | 能力边界 |
@@ -58,6 +87,7 @@
 | v0.2.0 | 方案锚点与门禁 | `.flow/spec.md` 锚点、开局路由、阶段门禁、安全压缩 |
 | v0.3.0 | 熔断与跨端接管 | 连续报错熔断、IM `1/2/3` 远程接管、双通道通知 |
 | v0.4.0 | 提示词库与可视化 | Markdown 提示词库、子代理 COW 覆盖层、本地回环接口、四 Tab 设置页 |
+| v0.5.0 | 工程级 SOP 编排 | S/M/L 分级、`.flow/docs` 七份编号文档与 SSOT、非阻塞票据门禁（桌面/IM `1/2/3`）、R7 草稿先行、UI Skills 探测、派单声明与白名单、黑盒→白盒双阶验收 |
 
 ## S2 能力
 
@@ -172,7 +202,125 @@
 
 宿主未提供 `webServer` 时接口整体跳过，设置页提示改用 `/flow prompts update`。
 
-## 自定义子代理编写规范 / Subagent Authoring Specification
+## S5 能力：v0.5.0 工程级 SOP 编排
+
+### S/M/L 分级矩阵
+
+等级在**开局**由 `flow_choose_route` 的 `level` 参数给出建议，用户可一票升降；之后门禁、`flow:docs` 便利贴、注入文本都读同一份常量（`flow-level.js`），不存在"提示词要五份、门禁只查三份"的漂移。
+
+| 等级 | 适用 | 必做文档 | 人工停点 | 通知节点 |
+|---|---|---|---|---|
+| **S** | 局部交互改动 / 单点 Bug（≤3 文件、无新模块） | 无编号文档；**必须 1 轮交互形态确认**（点哪里 / 看到什么 / 异常怎么显示） | 1 次 | 不发 |
+| **M** | 独立新模块 / 中型功能 | `01` `03` `05` `06` `07` | 2 次 | `03` `05` `acceptance` |
+| **L** | 从零建项目 / 架构重构 | `01`–`07` 全套 | 3 次 | `03` `04` `05` `acceptance` |
+
+- **切 Build 前必须齐备**：M = `01 03 05`；L = `01 02 03 04 05`；S 不校验。
+- **验收门禁必须齐备**：M/L 都要 `06` + `07`。
+- 等级缺省取 `docs.level`（默认 `M`）。
+
+### `.flow/docs/01..07` 与 SSOT
+
+| 编号 | 文件 | 作用 | 通知 |
+|---|---|---|---|
+| 01 | `01-requirements.md` | 需求：`F-xx` 功能、布局、交互、四态、`N-xx` 不做清单 | **不发** |
+| 02 | `02-research.md` | 同类方案 ≥2 候选、许可证、复用/微调/自建结论 | 不单独发 |
+| 03 | `03-tech-and-env.md` | 文件级拆分 + **实跑命令环境体检** + 缺凭证三选一 | 邮件/IM 带附件 |
+| 04 | `04-ui-spec.md` | Design Token（hex/数值）、8 态矩阵、断点、≥44px | L 级发（含 HTML 原型） |
+| 05 | `05-dev-spec.md` | **唯一法典（SSOT）**，冲突必写「覆盖 0X §Y，理由…」 | 定稿门禁 |
+| 06 | `06-blackbox-qa.md` | 黑盒：AI 实测（带证据）+ 待人工点验 + `BUG-xx` | 验收门禁 |
+| 07 | `07-whitebox-qa.md` | 白盒：`文件:行号` + 触发链 + 四项审计 + 回归点 | 随 06 一起发 |
+
+- `.flow/spec.md` 只放 05 的 ≤20 行摘要（`<!-- flow:summary -->`），两者冲突以 05 正文为准。
+- 文档目录 `docs.dir` 默认 `.flow/docs`；`flow_docs_*` 三个工具只允许写该目录与 `.flow/spec.md`，**业务代码始终受只读沙箱约束**。
+
+### 门禁 v2：非阻塞票据
+
+`flow_stage_gate` 不再"弹窗同步等待"，而是**建票即返回**：
+
+1. 返回 `outcome: 'awaiting-user'`，正文里带票据号（`#t3f9`）与 `1/2/3` 选项，并附**强制停手指令**：展示完必须结束本轮。
+2. 结算有三个入口，全部走同一个结算器（`gate-settle.js`）：
+   - 桌面：`/flow gate answer <票据> 1` 或直接按卡片；
+   - 微信/飞书：回 `#t3f9 1 你的意见`（`gate-router.js` 会**掐断 IM 会话自身推理**并把决定与意见原文转给桌面会话）；
+   - 超时后迟到回复：同上，票据仍可救回。
+3. 超时（`gate.timeoutSeconds`，默认 1800 秒）只做两件事：登记 `expired + hold`、**催办一次**（`gate.escalate`，默认 `both`）。**绝不视为同意**；hold 期间 `flow_docs_write` 与新门禁都会被拦。
+4. 关掉卡片 = 没做选择（不是拒绝）：票据保持待决，`/flow gate release` 只解除 hold，仍需你决定。
+
+`kind` 四种形态：`stage`（阶段切换）/ `blocker`（外部阻断求助）/ `acceptance`（人工验收）/ `permission`（写文档授权）。
+
+### 七个新增工具
+
+| 工具 | 关键参数 | 作用 |
+|---|---|---|
+| `flow_docs_init` | `ids?` `level?` `overwrite?` | 按等级生成缺失骨架（只写模板，**无需授权**） |
+| `flow_docs_check` | `ids?` `level?` | 逐份校验存在/空壳/必填章节，缺哪份点名 |
+| `flow_docs_write` | `id?` `target?` `name?` `content` `mode?` `deliver?` | 白名单受控写入；`writePolicy=ask` 时未授权返回 `needs-permission` |
+| `flow_send_doc` | `docIds[]` `to` `note?` | 按需即时投递：邮件带附件，IM 只发摘要 |
+| `flow_ui_skill` | `refresh?` | 探测 taste / impeccable 并给分流建议；未装给**纯对话**三选一 |
+| `flow_dispatch_declare` | `assignments[{who,files[],duty?}]` `note?` | 派单声明：探测工具/只读能力/agentPreset，校验白名单重叠，输出 `[调度声明]` |
+| `flow_qa_handoff` | `action: brief\|package\|round\|notify\|reset` `project?` | 06→07 简报、06+07 修复包、返工轮次、qa 通知 |
+
+`flow_stage_gate` v2 新增参数：`kind` `level` `docIds` `attachments` `timeoutSeconds` `options` `docId` `toStage` `draftContent`。
+
+### R7 草稿先行
+
+只读会话落盘文档前，必须：
+
+1. 在对话里展示草稿——**≤80 行全贴；>80 行贴「章节目录 + 关键决策 + 风险点」**，完整逐字稿放进 `draftContent`；两档都要求正文结论与 `draftContent` 严格一致。
+2. 调 `flow_stage_gate({ kind:'permission', docId, draftContent })`，三选一：`1` 仅本次 / `2` 本会话放行 `.flow/docs` / `3` 拒绝。
+3. 获批后才 `flow_docs_write`，写完 `flow_docs_check`。
+
+草稿只进内存与邮件 `.draft.md` 附件，**授权前不写任何文件**；IM 回 `0` 时若磁盘没有该文档，会自动回退读票据里的草稿。
+
+### UI Skills 探测
+
+- 服务名 `skills`，别名归一：`taste-skill | tasteskill | design-taste-frontend → taste`，`impeccable → impeccable`。
+- 已装：新页优先 `taste`，老页抛光优先 `impeccable`；两者都有时按"新建 / 改造"分流。
+- 未装：给 `1` 装 taste / `2` 装 impeccable / `3` 暂不装用内置规范的**纯对话**选项，不弹门禁、不阻塞流程。
+- 设置里关掉 `ui.skillProbe` 后不再扫 skill 目录，直接回内置 `ui-architect` 规范。
+
+### 派单声明与文件白名单
+
+- M/L 进入施工前必须调 `flow_dispatch_declare`，输出固定一行：
+  `[调度声明] 派单工具=<tool|none>｜只读能力=<preset|fallback|none>｜模式×特种兵=<n>组｜白名单=<n>段`
+- 三条进入施工的路径都会校验：`nextMode:'build'`、`nextMode:'flow'` 且 `docIds` 含 `05`（或在 Flow 下显式 `toStage:'build'`）。**S 级豁免**；`review` 不拦（施工期已声明过）。
+- **共享入口禁止划给并发子代理**：`index.js`、`config.js`、`package.json`、`prompts/manifest.json`、`.gitignore`、`cordis.patch.yml`、`README*.md` 由大队长串行接线。
+- 白名单相交（相同路径 / 父子目录 / glob 展开后相交）直接拒绝并返回冲突项。
+- 没装派单工具时给**诚实降级**：单线程施工、记录"未派子代理"；没有 `read-only` 预设时同样降级并记「未做独立审计」。
+
+### 黑盒 → 白盒双阶验收
+
+1. **第一棒 · 黑盒**（`qa-blackbox`，不看业务源码）：产出 `06` —— AI 自动化实测（每条带证据）+ 待人工点验清单 + 异常边界 + `BUG-xx`。**严禁把没执行的操作写成"已测"**。
+2. 有「待人工点验清单」→ `flow_stage_gate({ kind:'acceptance', docIds:['06'], level })`，三选一：`1` 开始验收 / `2` 跳过继续 / `3` 暂停。
+3. **第二棒 · 白盒**（`qa-whitebox`，带症状定因）：产出 `07` —— 每条 `BUG-xx` 给 `文件:行号` + 触发链 + 置信度，外加安全 / 并发与释放 / 孤儿模块 / 联动遗漏四项审计；查不到写「未定位 + 取证手段」。
+4. `flow_qa_handoff({action:'package'})` 合并成集中修复包（点名未定位与 🔴 Blocker）。
+5. **返工上限 3 轮**：每轮前 `flow_qa_handoff({action:'round'})` 计一次，1–3 轮放行，**第 4 轮硬拦**并上报用户；修完只跑受影响路径的轻回归，再交黑盒复验。
+6. `flow_qa_handoff({action:'notify'})` 发 qa 通知：正文置顶 🔴 阻塞项与人工点验清单，附件带 `06` + `07`。
+
+### v0.5.0 新增配置字段
+
+设置页第 3 个 Tab「工作流与熔断」底部新增「文档与门禁」卡片；字段与 `config.js` 默认值逐项对应：
+
+| 配置块 | 字段 | 默认 | 说明 |
+|---|---|---|---|
+| `docs` | `enabled` | `true` | 关闭后不注入 `flow:docs` 便利贴 |
+| | `dir` | `.flow/docs` | 相对会话工作目录；只允许写这里与 `.flow/spec.md` |
+| | `level` | `M` | 默认任务等级 `S`/`M`/`L` |
+| | `enforce` | `strict` | `warn` 只警告不拦截（过渡期用） |
+| | `writePolicy` | `ask` | `auto` 时白名单内直接放行，不再要 `permission` 授权 |
+| `gate` | `timeoutSeconds` | `1800` | 门禁倒计时；`0` 表示不设超时 |
+| | `escalate` | `both` | 超时催办通道 `im-first`/`email-first`/`both`/`off` |
+| | `imDigestChars` | `200` | IM 摘要字数上限（票据号与 `1/2/3` 不受此限） |
+| | `docDigestChars` | `800` | `/flow gate doc` 与 IM 拉文档的摘要上限 |
+| | `persist` | `true` | 票据写 `.flow/state/gates.json`，跨重启仍可回应 |
+| `download` | `greenMaxMB` | `20` | 🟢 自主安装上限 |
+| | `yellowMaxMB` | `300` | 🟡 上限；≥ 即红灯，动前必问 |
+| | `slowSeconds` | `60` | 黄灯下载超过这个秒数就停下问 |
+| `ui` | `skillProbe` | `true` | 关掉后不探测设计 Skill，直接用内置规范 |
+| `notify.qa` | — | `email-first` | 验收报告通知通道 |
+
+> **没有 `dispatch` 配置块**：是否拦截由代码规则决定（`dispatch-declare.js` 的 `requiresDeclaration()` + 共享入口常量），不需要也不支持配置开关。
+
+
 
 本规范面向自行编写子代理提示词的用户，以及协助其配置 `dsh-flow` 的 AI 助手。
 
