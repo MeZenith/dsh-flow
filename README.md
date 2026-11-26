@@ -198,14 +198,11 @@ flowchart LR
 * **环境要求**：DeepSeek Harness `0.2.x` 及以上 · Node.js `22` 及以上（零构建纯 ESM，直接使用原生 `fetch` 与 `node:crypto`）
 
 ```bash
-# 1. 从 GitHub 仓库安装到指定 profile（示例为 web）
+# 从 GitHub 仓库安装到指定 profile（示例为 web）
 dsh plugin --profile web add github:MeZenith/dsh-flow
-
-# 2. 若已发布至 npm 亦可直接安装
-dsh plugin --profile web add dsh-flow
 ```
 
-安装完成后在设置页启用 `dsh-flow`，重载插件并在浏览器按 `Ctrl + Shift + R` 刷新即可使用。
+安装完成后在设置页启用 `dsh-flow`，重载插件并在浏览器按 `Ctrl + R` 刷新即可使用。
 
 ---
 

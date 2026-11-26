@@ -207,7 +207,7 @@ In `Flow` and `Plan Ultra`, the orchestrator reads and dispatches these experts 
 * **Requirements**: DeepSeek Harness `0.2.x` or newer · Node.js `22` or newer (zero-build ESM using native `fetch` and `node:crypto`)
 
 ```bash
-# 1. Install from the GitHub repository into a profile (web shown here)
+# Install from the GitHub repository into a profile (web shown here)
 dsh plugin --profile web add github:MeZenith/dsh-flow
 ```
 
