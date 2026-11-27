@@ -1,10 +1,10 @@
 {
-  "version": "0.5.0",
-  "updatedAt": "2026-11-26T12:48:47.298Z",
+  "version": "0.6.0",
+  "updatedAt": "2026-11-27T08:06:34.026Z",
   "files": [
     {
       "path": "base.md",
-      "sha256": "a894931bcbc541487a6eefb47822927238e8dc44e4252c36cf526532fa7794bc"
+      "sha256": "35840df33616a6534c177c4d7e31178c326abe9987c18e133a55448e2dbe7cba"
     },
     {
       "path": "docs/01-requirements.md",
@@ -40,7 +40,7 @@
     },
     {
       "path": "modes/flow.md",
-      "sha256": "cc9e42c5af4cb7f670092ceee18b1ab2a898903a552e2588792dffd918376753"
+      "sha256": "719b92a093bc2d010219417d4c2cb832025fc17f6ff9f7e9be99a1ca562fc316"
     },
     {
       "path": "modes/plan-ultra.md",
@@ -48,15 +48,11 @@
     },
     {
       "path": "modes/plan.md",
-      "sha256": "5ba774e42d55145241f62727f997609df259ab773659803bfa6b87e949b5ffb2"
+      "sha256": "3d75ff7a7a82ed6ea38925a760cc712e5ee3ddca0be7d4ebd5fcfcea031b5a87"
     },
     {
       "path": "modes/review.md",
       "sha256": "3507026ffb7ee54ea6243a0e390de8e00fc9bccc9da3adfd4f7584364ae705ff"
-    },
-    {
-      "path": "subagents/README.md",
-      "sha256": "e00c41da9d1cf6ba9da28899922725fe1d6b43ad4a0ea438f82609c5a3fec30d"
     },
     {
       "path": "subagents/build-worker.md",
@@ -85,6 +81,10 @@
     {
       "path": "subagents/qa-whitebox.md",
       "sha256": "e87f84031b98c194ca28a639418bd85460471aec2e241bbfdfaf7ca1b00daaef"
+    },
+    {
+      "path": "subagents/README.md",
+      "sha256": "371400d2aca0dfacee94c84f16b75f472933382d7811bf3303513e421418dd57"
     },
     {
       "path": "subagents/reverse-engineer.md",

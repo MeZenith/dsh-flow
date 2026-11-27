@@ -1,21 +1,26 @@
-# 第三方代码说明
+# 第三方代码与开源依赖说明
 
-本插件在 `vendor/` 下内置了两份上游代码，目的是让 Host 半**零安装依赖**即可运行，
-同时避免本地目录安装为软链接时裸模块解析失败。
+本插件采用「内置极简 Schema 依赖 + 惰性加载飞书官方 SDK」的双策略，兼顾零构建运行体验与直连飞书能力。
+
+## 1. 内置运行时依赖（`vendor/`）
 
 | 文件 | 上游 | 版本 | 许可 | 处理 |
 |---|---|---|---|---|
-| `vendor/schemastery.mjs` | `@deepseek-ai/schemastery` | 3.18.5 | MIT | 原样复制 `lib/index.mjs`，仅把 `from "@deepseek-ai/cosmokit"` 改写为 `from "./cosmokit.mjs"` |
-| `vendor/cosmokit.mjs` | `@deepseek-ai/cosmokit` | 1.8.6 | MIT | 原样复制 `lib/index.js`（该文件本身无任何 import） |
+| `vendor/schemastery.mjs` | `@deepseek-ai/schemastery` | 3.18.5 | MIT | 原样复制 `lib/index.mjs`，仅将 `from "@deepseek-ai/cosmokit"` 改写为 `from "./cosmokit.mjs"` |
+| `vendor/cosmokit.mjs` | `@deepseek-ai/cosmokit` | 1.8.6 | MIT | 原样复制 `lib/index.js`（无任何 import） |
 
-为什么必须内置 Schemastery：宿主 `settings.describe()` 通过
-`volatileForm(schema)` 判断一个插件是否出现在设置页 —— 返回 `undefined` 就整条跳过，
-而 `volatileForm` 读的是 `schema.meta / schema.type / schema.dict`，并用真正的
-`z.object()` 重建表单树。所以插件 Config 必须是真实的 Schemastery 实例。
+上游许可原文已随副本保留在 `vendor/LICENSE`（MIT，Copyright (c) 2021-present Shigma）。
 
-升级方式：用新版本的 `lib/index.mjs` / `lib/index.js` 覆盖 `vendor/` 下同名文件，
-再做一次同样的 import 改写即可。上游均为 MIT，保留其许可声明即符合要求 ——
-上游许可原文已随副本放在 `vendor/LICENSE`（MIT，Copyright (c) 2021-present Shigma）。
+## 2. 外部依赖（`package.json` `dependencies`）
 
-本项目自身的许可是"源码可见 / 不可商用 / 可修改 / 须标注来源"，见根目录 `LICENSE`；
-该限制**不适用于** `vendor/` 下的第三方文件，它们仍然完全按 MIT 授权。
+| 包名 | 版本范围 | 许可 | 用途 |
+|---|---|---|---|
+| `@larksuiteoapi/node-sdk` | `^1.73.0` | MIT | v0.6.0 直连飞书 / Lark 指挥官（扫码建应用 `registerApp`、出站 WebSocket 长连接 `WSClient`、互动卡片回调与文件直传）。通过 `src/remote/feishu/sdk-loader.js` 惰性加载，未安装依赖时主插件仍可正常运行。 |
+
+## 3. 设计参考致谢
+
+- 飞书扫码建应用流程、权限集与 WebSocket 断线重连实践参考了 [@xmanrui/dsh-im](https://github.com/xmanrui/dsh-im)（MIT License）。
+
+---
+
+本项目自身的许可为 PolyForm-Noncommercial-1.0.0（见根目录 `LICENSE`）；该限制**不适用于** `vendor/` 与上述第三方 MIT 开源组件。

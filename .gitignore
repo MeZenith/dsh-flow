@@ -1,61 +1,33 @@
-# dsh-flow 仓库白名单
-#
-# 策略：默认忽略一切，只显式放行插件本体。这样 plugin 目录里任何临时文件、
-# 日志、缓存、编辑器产物、依赖目录都不会被误提交。
-#
-# 需要新增受版本管理的文件时，在下面「放行清单」里补一行 `!/<路径>`，
-# 否则它会被 `*` 规则忽略。
+# dsh-flow standard ignore rules (replaces fragile whitelist)
 
-# 1) 忽略一切
-*
-# 2) 放行目录本身，否则白名单无法进入子目录
-!*/
-
-# 3) 放行清单 —— 只包含项目开发产物
-!/.gitignore
-!/.gitattributes
-!/LICENSE
-!/README.md
-!/THIRD_PARTY_NOTES.md
-!/package.json
-!/cordis.patch.yml
-!/icon.svg
-
-# Host 半
-!/index.js
-!/config.js
-!/modes.js
-!/mode-plan.js
-!/mode-projection.js
-!/prompt-bridge.js
-!/switch-mode.js
-!/spec-anchor.js
-!/compact-bridge.js
-!/tools.js
-!/commands.js
-
-# Client 半
-!/client.js
-
-# 内置运行时依赖（自包含 ESM，必须随仓库分发）
-!/vendor/*.mjs
-!/vendor/LICENSE
-
-# 展示元数据与文档
-!/locale/*.json
-!/docs/*.md
-
-# 4) 兜底：即使上述规则被放宽，这些也永远不进仓库
+# Dependencies & caches
 node_modules/
+package-lock.json
 .pnpm-store/
+.npm/
+.cache/
+
+# Build & test artifacts
 dist/
 build/
 out/
 coverage/
+
+# Runtime state, local workspace flow docs, logs & scratch files
+.flow/
 *.log
 npm-debug.log*
 pnpm-debug.log*
 yarn-error.log*
+*.tmp
+*.bak
+
+# Environment & secrets
+.env
+.env.*
+*.local
+
+# OS & editor clutter
 .DS_Store
 Thumbs.db
 desktop.ini
@@ -64,38 +36,3 @@ desktop.ini
 *.swp
 *.swo
 *~
-.env
-.env.*
-*.local
-*.bak
-*.tmp
-!/activity.js
-!/circuit-breaker.js
-!/notify.js
-!/notify-im.js
-!/notify-email.js
-!/smtp-client.js
-!/smtp-presets.js
-!/team-sse.js
-!/prompt-store.js
-!/prompt-updater.js
-
-# v0.5.0 新增 Host 模块（漏了会导致"文件在本地、永远提交不上去"）
-!/flow-level.js
-!/flow-docs.js
-!/gate-tickets.js
-!/gate-router.js
-!/gate-settle.js
-!/flow-ui-skill.js
-# P4/P5 预留：文件还没建，先把白名单占好，免得建的时候又漏一次
-!/dispatch-declare.js
-!/qa-handoff.js
-
-# 自检脚本（进仓库、但不进 npm 包；package.json 的 files 未列 test/）
-!/test/**
-!/prompts/**
-!/prompt-api.js
-!/docs/assets/
-!/docs/assets/*
-!/README.en.md
-!/CHANGELOG.md

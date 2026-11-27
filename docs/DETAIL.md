@@ -50,34 +50,30 @@
 每次切换会在对话里留一条命令行记录，这与原生 `/permission` 芯片的行为一致，
 是有意保留的可审计轨迹。
 
-## 命令总览（v0.5.0）
+## 命令总览（v0.6.0）
 
-`/flow` 后面的**第一个 token** 决定走哪条子命令。下表与 `commands.js` 的真实实现一一对应：
+`/flow` 后面的**第一个 token** 决定走哪条子命令。下表与 `src/commands/` 的真实实现一一对应：
 
 | 命令 | 作用 | 备注 |
 |---|---|---|
 | `/flow <mode>` | 切换模式 `off` / `plan` / `plan-ultra` / `build` / `review` / `flow` | 与点芯片等价，留审计轨迹 |
-| `/flow` 或 `/flow status` | 回报当前模式与可选项 | 不改状态 |
+| `/flow` 或 `/flow status` | 回报当前模式、任务等级、待决门禁、熔断与飞书连接态 | 只读 |
+| `/flow help` | 显示全部子命令速查 | 只读 |
+| `/flow feishu status\|connect\|disconnect\|test` | 查看飞书直连状态、手动重连/断开、发送飞书测试卡片 | 飞书直连管理 |
 | `/flow spec` | 看 `.flow/spec.md` 锚点摘要与大小 | 文件不存在时如实说明 |
 | `/flow compact` | 手动触发一次上下文压缩 | 走压缩桥，失败有回执 |
 | `/flow prompts list` | 列出提示词版本、五模式来源、特种兵清单 | 只读 |
-| `/flow prompts update` | 拉远端提示词库并逐文件校验 sha256 | 不覆盖 `prompts/custom/` |
+| `/flow prompts update` | 拉远端提示词库并逐文件校验 sha256 | 不覆盖用户私有目录 |
 | `/flow gate list` | 列出当前会话的门禁票据（状态 / 选项 / 是否 hold） | 卡片消失后仍可查 |
-| `/flow gate answer <票据> <1\|2\|3> [附带意见]` | 结算一张票据；附带意见会原样传给桌面会话 | 与 IM 回 `#票据号 1 意见` 等价 |
-| `/flow gate skip <票据> [附带意见]` | 跳过（等价于选第 2 项） | 跳过项要写进未验证清单 |
+| `/flow gate answer <票据> <1\|2\|3> [附带意见]` | 结算一张票据并自动唤醒桌面会话；附带意见保留原始大小写 | 与桌面直接回 `1` 或点飞书卡片等价 |
+| `/flow gate skip <票据> [附带意见]` | 跳过（等价于选第 2 项）并唤醒会话 | 跳过项要写进未验证清单 |
 | `/flow gate doc <票据>` | 看该票据关联文档或未落盘草稿的摘要 | 长文按 `gate.docDigestChars` 截断 |
-| `/flow gate release <票据>` | 解除超时后的 hold，**但仍等你决定**，不会自动推进 | 用于"再想想" |
-| `/flow docs init` | 按当前等级生成缺失的文档骨架 | 只写模板，无需授权 |
-| `/flow docs`（也可写 `/flow docs list`） | 逐份校验全部必做文档，缺章节会点名 | 默认子命令就是校验 |
+| `/flow gate release [票据\|all]` | 精准解除指定票据（或本会话全部）的 hold，仍等你决定 | 用于"再想想" |
+| `/flow docs init` | 按当前会话等级生成缺失的文档骨架 | 只写模板 |
+| `/flow docs`（也可写 `/flow docs list`） | 按当前会话等级逐份校验必做文档 | 默认子命令就是校验 |
 | `/flow docs 05` | 只校验指定编号 | 传编号即单份模式 |
-| `/flow retry` / `/flow escalate` / `/flow resume` | 熔断三件套：重试 / 换救场模型重试 / 解除暂停 | 与 IM `1/2/3` 同义 |
-| `/flow notify-test` | 自检 IM 与邮件通道，回报实际走的链路 | 排障用 |
-
-> **尚未提供**：`/flow level s|m|l`、`/flow dispatch`、`/flow gate extend`。
-> 现在的等价做法是——等级通过 `flow_choose_route` 或门禁的 `level` 参数设置；
-> 派单通过 `flow_dispatch_declare` 工具；票据超时后用 `/flow gate release` 解除 hold 再重新决定。
-> 这三条命令已列入后续版本，落地前不在文档里冒充"可用"。
-
+| `/flow retry` / `/flow escalate` / `/flow resume` | 熔断三件套：重试 / 换救场模型重试 / 解除暂停 | 与飞书卡片/IM `1/2/3` 同义 |
+| `/flow notify-test` | 自检飞书直连、IM 与邮件通道 | 排障用 |
 
 ## 版本演进
 
@@ -87,7 +83,8 @@
 | v0.2.0 | 方案锚点与门禁 | `.flow/spec.md` 锚点、开局路由、阶段门禁、安全压缩 |
 | v0.3.0 | 熔断与跨端接管 | 连续报错熔断、IM `1/2/3` 远程接管、双通道通知 |
 | v0.4.0 | 提示词库与可视化 | Markdown 提示词库、子代理 COW 覆盖层、本地回环接口、四 Tab 设置页 |
-| v0.5.0 | 工程级 SOP 编排 | S/M/L 分级、`.flow/docs` 七份编号文档与 SSOT、非阻塞票据门禁（桌面/IM `1/2/3`）、R7 草稿先行、UI Skills 探测、派单声明与白名单、黑盒→白盒双阶验收 |
+| v0.5.0 | 工程级 SOP 编排 | S/M/L 分级、`.flow/docs` 七份编号文档与 SSOT、非阻塞票据门禁、UI Skills 探测、派单声明与白名单、黑盒→白盒双阶验收 |
+| v0.6.0 | 架构重构与直连飞书指挥官 | `src/` 十一层分层架构、模块化 `src/client/`、`.flow/docs` 默认直写免二次审批、`RemoteHub` + 直连飞书（自定义名称/头像扫码建应用、互动卡片、文档文件直发、多项目切换）与全量 P0/P1 缺陷修复 |
 
 ## S2 能力
 

@@ -10,6 +10,7 @@
 | `build-worker.md` | 白名单内的模块化施工 | 施工阶段按文件边界切块派发 | 可写（限白名单） |
 | `qa-blackbox.md` | 黑盒体验与边界测试 | 施工完成后第一棒验收 | 只读（禁读业务源码） |
 | `qa-whitebox.md` | 白盒定因 + 四项审计 | 黑盒出症状后第二棒 | 只读 |
+| `qa-tester.md` | 独立对抗式测试与回归用例编写 | 补齐单元测试、边界回归与验收脚本 | 可写测试文件 |
 | `reverse-engineer.md` | 逆向、协议、二进制与打包产物分析 | 确认现成库或黑盒组件的实际行为 | 只读，可本地执行 |
 | `deep-debugger.md` | 疑难排障、日志取证、竞态复现 | 现象异常且多次修改无效 | 只读，可运行命令 |
 | `security-auditor.md` | 并发竞态、越权、隐私与密钥审计 | 涉及权限、并发或敏感数据 | 只读 |
@@ -18,6 +19,6 @@
 
 - **权限三层正交**：能力层（`permissionPreset`，`read-only` 需先探测）→ 工具层（`agentPreset`，仅探测命中且 `fresh` 才传）→ 提示词层（角色卡 + 模式纪律 + 白名单 + 任务简报）。
 - **每份正文都以【子代理硬隔离尾注】收尾**：禁调 `flow_*`、禁再派单、禁直接向用户提问，越界或阻断立刻结构化上报大队长。
-- **白名单互不重叠**：施工/审计子代理的文件范围不得交叉；共享入口（`index.js`、`config.js`、`package.json`、`manifest.json`）由大队长串行接线。
+- **白名单互不重叠**：施工/审计子代理的文件范围不得交叉；共享入口（`index.js`、`client.js`、`src/plugin.js`、`src/config/schema.js`、`package.json`、`prompts/manifest.json`）由大队长串行接线。
 
-自定义子代理放在 `custom/subagents/`：与官方同名时优先使用自定义版本，一键更新不会修改该目录。
+自定义子代理存放在插件包外持久化目录（默认 `$DSH_PROFILE_DIR/data/dsh-flow/prompts/custom/subagents/`，回落 `~/.dsh-flow/prompts/custom/subagents/`，可通过 `prompts.customDir` 覆盖）：与官方同名时优先使用自定义版本，插件升级与一键更新不会覆盖它。

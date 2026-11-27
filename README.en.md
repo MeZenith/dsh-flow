@@ -1,19 +1,41 @@
 <p align="center">
-  <img src="./docs/assets/banner.png" alt="dsh-flow Banner" width="100%" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/banner-dark.jpg" />
+    <source media="(prefers-color-scheme: light)" srcset="./docs/assets/banner-light.jpg" />
+    <img src="./docs/assets/banner-light.jpg" alt="dsh-flow Banner" width="100%" />
+  </picture>
 </p>
+
+<details align="center">
+  <summary><sub>🌗 Auto-adapts to GitHub theme · Click to preview both banners (Light Studio / Dark Glass)</sub></summary>
+  <br/>
+  <table width="100%">
+    <tr>
+      <td width="50%" align="center">
+        <img src="./docs/assets/banner-light.jpg" width="100%" alt="Light Studio Banner" /><br/>
+        <sub><b>Light Studio Edition</b> (default in Light Mode)</sub>
+      </td>
+      <td width="50%" align="center">
+        <img src="./docs/assets/banner-dark.jpg" width="100%" alt="Dark Glass Banner" /><br/>
+        <sub><b>Dark Glass Edition</b> (auto-selected in Dark Mode)</sub>
+      </td>
+    </tr>
+  </table>
+</details>
 
 <h1 align="center">dsh-flow</h1>
 
 <p align="center">
-  <b>An engineering-grade workflow supervisor and progressive prompt orchestrator built for DeepSeek Harness</b><br/>
-  Five-stage controllable development · External Markdown skill library · One approval, fully managed · Circuit breaker with mobile WeChat takeover
+  <b>An engineering-grade workflow supervisor, progressive prompt orchestrator, and direct Feishu/Lark mobile commander for DeepSeek Harness</b><br/>
+  Five controllable workflow modes · Direct <code>.flow/docs</code> writes · Circuit breaker · Live streaming Feishu/Lark cards &amp; multi-project control
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v0.5.0-2563EB?style=flat-square" alt="Version v0.5.0" />
+  <img src="https://img.shields.io/badge/Version-v0.6.0-2563EB?style=flat-square" alt="Version v0.6.0" />
   <img src="https://img.shields.io/badge/License-PolyForm--NC--1.0.0-EA580C?style=flat-square" alt="License: PolyForm-NC-1.0.0" />
-  <img src="https://img.shields.io/badge/Zero--Build-ESM-16A34A?style=flat-square" alt="Zero-Build ESM" />
+  <img src="https://img.shields.io/badge/ESM-Modular-16A34A?style=flat-square" alt="Modular ESM" />
   <img src="https://img.shields.io/badge/Node-%3E%3D22-339933?style=flat-square" alt="Node >= 22" />
+  <img src="https://img.shields.io/badge/Feishu-Direct%20WSS-00B96B?style=flat-square" alt="Feishu Direct WSS" />
   <img src="https://img.shields.io/badge/i18n-中文%20%2F%20EN-0284C7?style=flat-square" alt="i18n: 中文 / EN" />
 </p>
 
@@ -25,318 +47,237 @@
 
 ### Why dsh-flow?
 
-When a model drives a long development chain, the real cost is rarely "it cannot write code" — it is the rework produced while it runs out of control:
+When driving long coding chains with an LLM, the real cost is rarely "it cannot write code" — it is the rework created while it runs without guardrails:
 
-* **Rushing ahead**: you only wanted to clarify the approach, yet the model has already picked a stack and modified a dozen files;
-* **Re-inventing a worse wheel**: the project already ships a component, an open-source library or a host capability, but the model ignores all of it and hand-rolls a fragile replacement;
-* **Tail fatigue and orphan code**: as context grows, the second half of a long file degrades sharply, new modules ship without their call sites wired, and the delivery still claims "fully done";
-* **Error loops and lost contact**: after repeated tool failures the model nudges the same parameters against the wall and burns tokens, and once you leave the desk the long task stalls unattended.
+* **Rushing ahead**: you wanted to clarify requirements and architecture first, yet the model already edited a dozen files;
+* **Re-inventing a worse wheel**: the project already ships a reusable component, host API, or mature library, but the model hand-rolls a fragile replacement;
+* **Tail fatigue and orphan wiring**: as context grows, the second half of a file degrades, new modules ship without callers wired, and the summary still claims "all done";
+* **Error loops and desk lock-in**: repeated tool failures spin in circles burning tokens, and once you step away from your desk, plan approvals or command prompts stall indefinitely.
 
-`dsh-flow` combines a **hard engineering contract, a five-stage workflow, a circuit breaker and cross-device takeover**, turning the model from "an intern that needs constant supervision" into "a disciplined, delegable engineering team you can reach from anywhere".
-
----
-
-### Core Strengths
-
-#### 1. A hard engineering contract tuned for long-chain programming
-
-Unlike generic "please think carefully" prompts, the base contract (`base.md`) sets five iron rules against real-world coding failures:
-
-* **The Rolls-Royce principle**: before writing any general capability, search the existing components, host interfaces and mature open-source ecosystem; hand-rolling a low-quality substitute without justification is not allowed;
-* **Evidence first, stop after two failures**: trust the real runtime feedback, never conclude from a partial source guess; the same error failing twice forces a stop and a root-cause review;
-* **No tail slacking, no orphan wiring**: never degrade into rough concatenation at the end of a long file, and verify upstream and downstream call sites before delivery;
-* **Auditable verification receipts**: never claim "fixed" without proof; every delivery lists the files checked, the commands actually run and every unverified item explicitly;
-* **Plain-language narrative with light technical coordinates**: explain the experience change and the decision logic first, then attach exact file and function coordinates in parentheses.
-
-#### 2. A genuine "one approval, fully managed loop" (no clicking along)
-
-Most workflow tools interrupt you at every stage transition, which in practice turns you into a confirmation-button operator.
-
-* In **`Flow` managed mode**, human stops are **tiered by task level**: 1 for S (interaction shape check), 2 for M (spec approval + acceptance), 3 for L (spec + manual spot-check + acceptance), plus doc-write authorisation. Gates are **non-blocking**: the ticket returns immediately, so you never babysit a modal;
-* Once you approve, the orchestrator **stays online the whole time**: it splits work into file-disjoint subtasks, dispatches subagents as needed, runs the test commands and starts an independent review pass;
-* If the review finds a `Blocker` or `Major` issue, the system **does not interrupt you**: it reworks internally and re-verifies (up to 3 automatic rounds by default), and only reports to you when the acceptance is green.
-
-#### Desktop & WeChat remote-control cheat sheet
-
-Gate tickets look like `#t3f9`. **Desktop**: click the card or run the command. **WeChat / Feishu**: reply with one text line, same syntax.
-
-| What you want | Desktop | WeChat / Feishu |
-|---|---|---|
-| See what needs a decision | card body (`1/2/3` + ticket id) | digest carries the id and options too |
-| Approve and continue | click "agree" or `/flow gate answer t3f9 1` | `#t3f9 1` |
-| Skip this item, keep going | `/flow gate skip t3f9` | `#t3f9 2` |
-| Send back / pause | pick the matching option | `#t3f9 3` |
-| Approve with a change request | `/flow gate answer t3f9 1 use a drawer instead` | `#t3f9 1 use a drawer instead` |
-| Read the doc draft | `0` (falls back to the in-ticket draft) | `#t3f9 0` |
-| After a timeout, think again | `/flow gate release t3f9` (lifts hold only) | `#t3f9 0` then decide |
-| List pending tickets | `/flow gate list` | read the ticket id from the latest gate digest (no list command over IM) |
-| Circuit-breaker rescue | `/flow retry` / `escalate` / `resume` | `1` retry / `2` stronger model / `3` lift + 5-min takeover |
-| Doc-write authorisation | `1` once / `2` this session | `#ticket 1` or `2` |
-
-> A timeout (30 min by default) only registers the ticket and pings you once — it **never approves on your behalf**, and late replies still settle.
-
-#### 3. External Markdown skill library with progressive disclosure (low tokens, unbounded growth)
-
-Every prompt is decoupled into a standalone Markdown file with **hot reload on modification**, so changing one line of prompt no longer means editing source and shipping a release:
-
-* **Zero context redundancy**: in `Flow` or `Plan Ultra`, only a compact subagent index is injected into the orchestrator (keeping prefix cache hits high); a full expert prompt is read only when that expert is actually dispatched;
-* **Extend experts without code**: drop a `.md` file into the private data directory (`<customDir>/subagents/`, or create it visually in settings) and the orchestrator recognises and dispatches your domain expert immediately — game-mod work, reverse engineering, protocol analysis, and so on;
-* **Copy-on-write isolation**: editing an official subagent or the directory in settings writes into that private data directory, so incremental updates from GitHub **never overwrite** your customisation, with built-in timestamp-based rollback protection.
-
-#### 4. Amnesia-proof long conversations (the `.flow/spec.md` anchor)
-
-After context compaction, an ordinary session easily forgets interface constraints and pitfalls agreed early on. `dsh-flow` treats the core summary in `.flow/spec.md` as a high-priority authoritative anchor and **re-attaches it after every compaction**, so the model stays on course from the first line of code to the final test round.
-
-#### 5. Circuit breaker with mobile `1 / 2 / 3` takeover
-
-* When tool failures reach the threshold, the breaker freezes the session, preserves the scene, and pushes a diagnostic summary through IM (WeChat / Feishu, etc.) or SMTP email;
-* **You can steer from the phone**: reply `1` (reset and retry), `2` (switch to the preset high-end diagnosis model), or `3` (release the breaker and open a 5-minute single-use handoff, so the next WeChat message is forwarded to the desktop session).
-
-#### 6. Zero build, zero external dependencies
-
-Pure ESM built directly on Node.js 22 native `fetch`, `node:fs`, `node:crypto` and `node:net` (a built-in SMTP client). No compilation or bundling, and no `git` binary is required for incremental prompt updates — install and run.
+`dsh-flow` pairs a **12-rule engineering contract, five-mode workflow engine, consecutive-failure circuit breaker, and a built-in Direct Feishu/Lark Commander**, turning your AI into a disciplined, remotely steerable engineering team.
 
 ---
 
-### Plain AI development vs. dsh-flow
+### Design Philosophy
 
-| Real-world scenario | Using a bare AI assistant | Using the dsh-flow workflow |
+1. **Enforce guardrails in code, not wishful prompts**: file-write allowlists, gate tickets, failure circuit breakers, and 3-round rework caps are implemented as hard runtime guards rather than polite suggestions.
+2. **Protect human attention for real decisions**: S/M/L scoping, direct `.flow/docs/` writes, and non-blocking stage gates pause only when your judgement matters — everything else closes internally.
+3. **One command center across desktop and phone**: desktop DSH and mobile Feishu share the transport-agnostic `RemoteHub`, enabling live streaming cards, competitive dual-side approvals, and quiet desktop separation.
+4. **Progressive disclosure, zero context bloat**: prompts live in hot-reloaded Markdown files; orchestrators read only a lean index and load specialist prompts on demand, while private overrides live safely outside the plugin package.
+5. **Zero server, zero black box, modular composition**: the built-in Feishu commander needs no VPS, tunnel, or companion IM plugin — scan a QR code in 30 seconds; standalone workflows run out of the box, and full multi-agent team orchestration pairs seamlessly with `dsh-team-control`; every delivery ships with an auditable verification receipt.
+
+---
+
+### What's New in v0.6.0
+
+#### 1. Built-in Direct Feishu / Lark Commander (Zero Server · Zero Tunnel · 30-Second QR Setup)
+* **Custom Bot Identity & One-Click QR Provisioning**: Pick your bot's name and avatar (6 built-in presets or any public image URL) in Settings, scan the on-screen vector QR code with Feishu/Lark mobile, and an outbound WebSocket long connection establishes automatically — **no public IP, no VPS, no Tailscale, and no prerequisite IM plugin required**.
+* **Live Streaming Reply Cards**: Ask any question directly in Feishu and receive a live updating card — showing real-time tool activity (with a `[⏹ Stop]` button), smooth streaming text updates (CardKit streaming with automatic `message.patch` fallback), and a finalized Markdown card with quick footer buttons (`[📂 Switch Project]` `[🧭 Switch Mode]` `[📋 Pending]` `[📖 Guide]`).
+* **Native Feishu `/` Slash Command Menu & Welcome Guide Card**: Automatically registers Feishu's native `/` input command panel (`/m`, `/mode`, `/p`, `/stop`, `/help`, `/id`) and sends a friendly 3-second onboarding card upon connection — zero commands to memorize.
+* **Multi-Project Control & Competitive Remote Approvals**:
+  * `/m` opens an interactive workspace/session switcher card; `@project your prompt` switches focus and dispatches in one message;
+  * `/mode` opens a visual 6-mode picker card to switch desktop modes with one tap;
+  * **Three Interactive Approval Cards**: Stage gates, circuit-breaker rescues, and **native DSH tool execution approvals (`approval/request`)** push clickable cards to your phone — whichever side (desktop or mobile) acts first wins immediately and syncs the other side;
+  * **Noise-Free Separation**: Feishu-initiated chats always stream back to Feishu; desktop-initiated everyday chats stay quiet on mobile by default (only gates, breaker trips, completions, and tool approvals push), with an optional **"Mirror Desktop Replies"** toggle in Settings when you step away.
+
+#### 2. Apple-Minimalist Settings UI
+* Redesigned all four tabs (`Modes` / `Workflow` / `Feishu` / `Prompts`) with Apple-style inset grouped lists, segmented controls, tactile toggle switches, steppers, and collapsible advanced drawers;
+* Guided 3-state Feishu pairing hero card (customize → centered vector QR with 3-step live tracker → connected next-step guide & one-click permission upgrade).
+
+#### 3. Workflow Refinements & Modular Architecture
+* **Direct `.flow/docs/` Writes by Default**: `docs.writePolicy` defaults to `auto` (switchable back to `ask`), keeping business code strictly read-only in Plan mode while eliminating redundant write-permission prompts before plan review;
+* **Clean 11-Layer `src/` Architecture & Automated Tests**: Refactored 29 flat root scripts into modular `src/` layers + modular `src/client/` bundle builder (`npm run build:client`), backed by 25 automated `node:test` suites covering gates, docs, circuit breaker, SMTP, prompt API, and end-to-end Feishu streaming & approvals.
+
+---
+
+### Built-in Direct Feishu Commander vs. `dsh-im`
+
+| Dimension | Built-in Direct Feishu Commander (`dsh-flow` v0.6.0+) | Pairing with `dsh-im` (Optional, Fully Compatible) |
 | :--- | :--- | :--- |
-| **A vague idea just appeared** | Starts creating files and writing code before asking how many pages or which boundaries | The **`Plan` five-step funnel** aligns requirements and boundaries as a product partner, then researches existing solutions and designs the technical and UI blueprint, with zero code changes before approval |
-| **Unsure which architecture to take** | A single viewpoint arguing with itself, producing a leaky plan | **`Plan Ultra`** dispatches product-experience, solution-scouting and architecture-review subagents in parallel for cross-examination and a clear trade-off brief |
-| **Code written, ready to hand in** | Call sites are missed, the tail is sloppy, and the report still says "all done" | **`Build`** verifies upstream and downstream wiring and style consistency, runs real tests and attaches an auditable verification receipt |
-| **Reviewing your own bug** | Rubber-stamps its own work while race conditions and edge cases slip through | **`Review`** switches to a "picky first user + cold QA" dual perspective and reports by severity with `file:line` references |
-| **Leaving for lunch or sleep** | Spins in place on one error, or waits on a confirmation box all night | **`Flow` managed mode + breaker takeover**: automatic internal rework; real blockers reach your WeChat and `1/2/3` steers the desktop session |
+| **Role** | Purpose-built mobile remote commander for the **Flow engineering workflow** | General-purpose multi-platform IM bridge (WeChat, WeCom, DingTalk, Feishu, Telegram, etc.) |
+| **Prerequisite** | **Standalone** — install `dsh-flow`, scan QR, ready in 30 seconds | Optional — install if you also want WeChat / WeCom / DingTalk delivery |
+| **Multi-project steering** | Native `/m` project hub & `@project prompt` switching across all workspaces | Primarily session/workspace-bound |
+| **Workflow interactivity** | Streaming reply cards, native `/` menu, `/mode` picker, in-place updated gate/breaker/tool-approval cards, direct `.flow/docs` file uploads | Text summaries & numeric fallback replies |
+| **Coexistence** | **Zero conflict** — Feishu runs as primary channel while `dsh-im`, custom Webhooks, and built-in SMTP email remain available under *Email & Other Channels* | Can be enabled alongside Feishu or SMTP archival anytime |
 
 ---
 
-### End-to-end flow
+### Interface & Live Previews
+
+#### 1. Apple-Minimalist Settings Workbench & Mode Chip
+
+<table width="100%">
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <img src="./docs/assets/settings-workflow.png" width="100%" alt="Workflow & Circuit Breaker settings" /><br/>
+      <sub><b>Workflow &amp; Breaker</b>: segmented controls, toggle switches, stepper, and collapsible advanced drawer</sub>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <img src="./docs/assets/settings-feishu.png" width="100%" alt="Feishu Remote Commander settings" /><br/>
+      <sub><b>Feishu Remote Commander</b>: live status, native <code>/</code> menu badge, 6 push toggles &amp; allowlist</sub>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center" valign="top">
+      <img src="./docs/assets/mode-switcher.png" width="52%" alt="Composer mode switcher chip" /><br/>
+      <sub><b>Desktop composer mode chip</b>: switch Plan / Plan Ultra / Build / Review / Flow in one click</sub>
+    </td>
+  </tr>
+</table>
+
+#### 2. Live Mobile Feishu Commander Screenshots
+
+<table width="100%">
+  <tr>
+    <td width="33%" align="center" valign="top">
+      <img src="./docs/assets/feishu-welcome-card.jpg" width="100%" alt="Feishu welcome guide card" /><br/>
+      <sub><b>Welcome &amp; 3-Second Guide</b><br/>Sent automatically on connect</sub>
+    </td>
+    <td width="33%" align="center" valign="top">
+      <img src="./docs/assets/feishu-slash-menu.jpg" width="100%" alt="Feishu native slash menu" /><br/>
+      <sub><b>Native <code>/</code> Command Panel</b><br/>Type <code>/</code> to pick commands visually</sub>
+    </td>
+    <td width="33%" align="center" valign="top">
+      <img src="./docs/assets/feishu-project-hub.jpg" width="100%" alt="Feishu multi-project hub card" /><br/>
+      <sub><b><code>/m</code> Project Hub</b><br/>Switch active sessions &amp; workspaces</sub>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="3" align="center">
+      <table width="100%">
+        <tr>
+          <td width="50%" align="center" valign="top">
+            <img src="./docs/assets/feishu-stream-reply.jpg" width="76%" alt="Feishu streaming reply card" /><br/>
+            <sub><b>Live Streaming Reply Card</b>: full Markdown response + 4 quick action buttons</sub>
+          </td>
+          <td width="50%" align="center" valign="top">
+            <img src="./docs/assets/feishu-mode-card.jpg" width="76%" alt="Feishu visual mode picker card" /><br/>
+            <sub><b><code>/mode</code> Visual Mode Switcher</b>: switch desktop modes with one tap</sub>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+
+---
+
+### Core Engineering System & Architecture
+
+* **12-Rule Base Contract (`prompts/base.md`)**: Rolls-Royce reuse rule, evidence-first debugging with 2-strike stop-loss, non-blocking stage gates, download traffic lights (`<20MB` / `20–300MB` / `≥300MB`), destructive-action guardrails, and mandatory auditable verification receipts.
+* **S / M / L Task Scoping & `.flow/docs/` (01–07)**: `05-dev-spec.md` acts as the single source of truth; `.flow/spec.md` stays pinned across context compactions; black-box (`06`) → white-box (`07`) two-stage QA loops internally up to 3 rework rounds before escalating.
+* **External Markdown Prompt Library + Copy-on-Write Isolation**: 5 workflow modes + 10 specialist subagents (`prompts/subagents/`), hot-reloaded from disk. Private overrides live outside the plugin package (`$DSH_PROFILE_DIR/data/dsh-flow/prompts/custom`, fallback `~/.dsh-flow/prompts/custom`) and survive every plugin or prompt update.
+
+#### End-to-End Runtime Flow
 
 ```mermaid
-flowchart LR
-    U([Raw idea]) --> P["Plan / Plan Ultra five-step funnel<br/>1.Requirements → 2.Solution scouting → 3.Technical design → 4.UI design → 5.Build blueprint"]
-    P --> G{"Single human approval<br/>.flow/spec.md finalised"}
-    G -->|Approved| F["Flow managed orchestrator<br/>(always online)"]
-    subgraph AutoLoop ["Unattended automation loop"]
-        F -->|reads subagent .md on dispatch| B["Build implementation and testing<br/>(mandatory verification receipt)"]
-        B --> R["Review dual-perspective acceptance<br/>(user experience + cold QA)"]
-        R -->|"Blocker/Major found · internal rework ≤3 rounds"| B
+flowchart TD
+    U(["💡 Your Request (Desktop DSH or Mobile Feishu)"]) --> P["📋 Planning · Plan / Plan Ultra<br/>S/M/L scoping · Direct .flow/docs/ writes"]
+    P --> G{"⚖️ Stage Gate Approval<br/>Desktop 1/2/3 · or Mobile Card Tap"}
+
+    G -->|"Revise"| P
+    G -->|"✅ Approve"| F["🚀 Flow Managed Orchestrator<br/>On-demand subagent .md · Disjoint file dispatch"]
+
+    subgraph Loop ["🔄 Unattended Build & Two-Stage QA Loop"]
+        direction LR
+        B["🔨 Build & Test<br/>Strictly per 05-dev-spec"] --> R["🔍 Review QA<br/>06 Black-box → 07 White-box"]
+        R -->|"Blocker / Major<br/>Internal rework ≤ 3 rounds"| B
     end
-    R -->|All green| D(["SMTP archival email & IM completion notice"])
-    B -.->|failure threshold reached| CB["Breaker freezes the session"]
-    CB -.->|pushes diagnostic summary| IM["Mobile WeChat remote control"]
-    IM -.->|"1 retry / 2 diagnosis model / 3 takeover with a new instruction"| B
+
+    F --> B
+    R -->|"🎉 All Green"| DONE(["📦 Feishu Summary · Doc Files · SMTP Archive"])
+
+    B -.->|"Consecutive failures / Tool prompt"| SAFE["🛡️ Circuit Breaker + Competitive Tool Approval"]
+    SAFE -.->|"Interactive action card"| MOBILE["📱 Mobile Feishu Commander<br/>Streaming cards · /m projects · /mode picker"]
+    MOBILE -.->|"Approve · Rescue model · Steer"| B
+```
+
+#### Layered Module Architecture
+
+```mermaid
+flowchart TD
+    subgraph Entry ["🎛️ Surfaces and Channels"]
+        direction LR
+        UI["Apple-Style Settings UI<br/>src/client/ → client.js"]
+        CMD["/flow Commands + 9 Tools<br/>src/commands/ · src/tools/"]
+        FEISHU["Direct Feishu Commander<br/>WSS · Streaming · / Menu · Approvals"]
+    end
+
+    HUB["🌐 Transport-Agnostic RemoteHub<br/>src/remote/hub.js · harness-bridge.js"]
+
+    subgraph Core ["⚙️ Workflow Engine"]
+        direction LR
+        MODES["Five Modes + Spec Anchor<br/>src/modes/"]
+        WF["Level · Docs · Dispatch · QA<br/>src/workflow/"]
+        GATES["Gates + Circuit Breaker<br/>src/gates/ · src/resilience/"]
+    end
+
+    subgraph Base ["🧱 Foundation and Assets"]
+        direction LR
+        PROMPTS["External Markdown Prompts<br/>src/prompts/ · prompts/*.md"]
+        NOTIFY["Multi-Channel Notify<br/>SMTP · dsh-im · Webhook"]
+        SAFEIO["Atomic Safe IO + Credentials<br/>src/shared/ · DSH credentials"]
+    end
+
+    UI --> PROMPTS
+    FEISHU <--> HUB
+    CMD --> Core
+    HUB <--> Core
+    Core --> Base
 ```
 
 ---
 
-### Five workflow modes and the built-in subagent matrix
+### Installation, Ecosystem Companions & Quick Start
 
-#### Five workflow modes
-
-| Mode | Permission and role | Core behaviour |
-| :--- | :--- | :--- |
-| **`Plan`** | Read-only · product and architecture partner | Runs the **five-step funnel** (requirements and boundaries → comparable products and open-source solutions → technical design and co-change list → UI and interaction design → development blueprint); no business code changes without approval. |
-| **`Plan Ultra`** | Read-only · parallel expert consultation | Inherits the `Plan` funnel, dispatches multi-perspective subagents in parallel for research and risk review, cross-examines to remove blind spots, and reports trade-offs between candidate routes. |
-| **`Build`** | Writable · disciplined implementation | Builds strictly against `.flow/spec.md` and the agreed UI specification; reuses existing components, avoids tail slacking and orphan modules, and always attaches a verification receipt. |
-| **`Review`** | Read-only · dual-perspective acceptance | Combines "picky real-user experience" with "cold QA code audit", hunting missing wiring, async re-entrancy, state leakage and privacy leaks, graded as `Blocker / Major / Minor`. |
-| **`Flow`** | Full authority · managed orchestrator | **One approval, fully managed**: after approval it never switches itself away, decomposes and dispatches work, runs the internal rework loop, and triggers archival notices once acceptance is green. |
-
-#### Ten built-in specialists (`prompts/subagents/`)
-
-In `Flow` and `Plan Ultra`, the orchestrator reads and dispatches these experts on demand (extendable under `prompts/custom/subagents/`):
-
-* **`product-scout`** (product and open-source scouting): studies how comparable mature products behave, inventories reusable components and libraries, and eliminates wheel re-invention at the source;
-* **`ui-architect`** (UI layout and interaction design): plans page regions, information hierarchy, control reuse and dark/responsive adaptation, removing "engineering bare-tag stacking";
-* **`plan-auditor`** (read-only three-dimension design auditor): returns a verdict table on architectural coupling, state machines and rollback, and safety/resource release — catching designs that merely look runnable;
-* **`build-worker`** (whitelisted implementer): only touches the files assigned to it, reports out-of-scope needs instead of editing them, and always returns a four-part receipt (changes / commands / out-of-scope / unverified);
-* **`reverse-engineer`** (reverse engineering and low-level analysis): protocol analysis, de-obfuscation, binary/packaged-artifact structure and call-chain reconstruction;
-* **`deep-debugger`** (hard troubleshooting and log forensics): hypothesis-driven diagnosis for repeated errors and intermittent faults, collecting runtime evidence to locate the root cause;
-* **`security-auditor`** (security and concurrency audit): path traversal, privilege boundaries, sensitive-data leakage, async races and resource leaks;
-* **`qa-tester`** (independent adversarial testing): boundary test cases, regression verification and a non-repudiable acceptance report;
-* **`qa-blackbox`** (black-box UX tester, no source reading): clicks as a user would and produces symptoms, reproduction steps, evidence and a manual spot-check list — never claiming untested things passed;
-* **`qa-whitebox`** (white-box root-cause analyst): turns 06 symptoms into `file:line` + trigger chains, plus four audits (safety / concurrency-release / orphan modules / missing wiring) and regression points.
-
----
-
-### Interface and live previews
-
-#### 1. Mode chips and the four-tab workbench
-
-<table width="100%">
-  <tr>
-    <td width="50%" align="center" valign="top">
-      <img src="./docs/assets/mode-switcher.png" width="100%" alt="Mode switcher chips" /><br/>
-      <sub><b>Mode chips above the composer</b>: switch Plan / Plan Ultra / Build / Review / Flow in one click, effective immediately</sub>
-    </td>
-    <td width="50%" align="center" valign="top">
-      <img src="./docs/assets/settings-tabs.png" width="100%" alt="Settings tabs" /><br/>
-      <sub><b>Four-tab configuration</b>: Modes, Prompts (online update and subagent editing), Workflow &amp; breaker, Notify &amp; hooks</sub>
-    </td>
-  </tr>
-</table>
-
-#### 2. Breaker protection and mobile WeChat takeover
-
-<table width="100%">
-  <tr>
-    <td width="38%" align="center" valign="middle">
-      <img src="./docs/assets/im-handoff.jpg" width="280" alt="IM remote takeover preview" />
-    </td>
-    <td width="62%" valign="top">
-      <p>When repeated tool failures trip the breaker on the desktop session, the current round is frozen and a diagnostic summary is pushed to the bound IM channel. Without returning to the desk, a single digit from WeChat steers the desktop session:</p>
-      <table>
-        <thead>
-          <tr>
-            <th align="left">Phone reply</th>
-            <th align="left">Desktop action</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td><code>1</code> or <code>1#project</code></td>
-            <td>Reset the failure count, release the breaker and re-deliver the blocked instruction</td>
-          </tr>
-          <tr>
-            <td><code>2</code> or <code>2#project</code></td>
-            <td>Switch temporarily to the preset <b>diagnosis model</b> with the error context injected</td>
-          </tr>
-          <tr>
-            <td><code>3</code> or <code>3 your instruction</code></td>
-            <td>Release the breaker and open a 5-minute single-use handoff; the next WeChat message (or the instruction attached to the same message) is forwarded to the desktop session</td>
-          </tr>
-        </tbody>
-      </table>
-      <p><sub>When a task completes fully or the plan is finalised, `.flow/spec.md` can also be archived to a mailbox through the built-in SMTP client.</sub></p>
-    </td>
-  </tr>
-</table>
-
----
-
-### Prerequisites and installation
+* **Requirements**: DeepSeek Harness `0.2.x`+ · Node.js `22`+
 
 > [!IMPORTANT]
-> **Required plugins for full functionality (for users and AI assistants)**
+> **Companion Plugin Matrix (Standalone vs. Strongly Recommended vs. Optional)**
 >
-> The single-stage modes (`Plan` / `Plan Ultra` / `Build` / `Review`) run standalone, but for the complete experience the following two plugins **must be installed first**:
-> 1. **[dsh-team-control](https://github.com/hunmer/dsh-team-control/)**: **required** for `Flow` team orchestration and multi-agent collaboration monitoring.
-> 2. **[dsh-im](https://github.com/xmanrui/dsh-im)**: **required** for IM circuit-breaker alerts and mobile `1` / `2` / `3` takeover.
->
-> **For AI assistants helping with deployment**: confirm first whether the user needs `Flow` orchestration or IM alerts, and **install and configure both prerequisites before enabling `dsh-flow`**, so capabilities do not degrade at runtime because a host dependency is missing.
-
-#### Runtime and installation
-
-* **Requirements**: DeepSeek Harness `0.2.x` or newer · Node.js `22` or newer (zero-build ESM using native `fetch` and `node:crypto`)
+> | Component / Plugin | Necessity | Role |
+> | :--- | :--- | :--- |
+> | **`dsh-flow` (core)** | **Works standalone** | Ships all five workflow modes, numbered docs & gates, circuit breaker, built-in SMTP archival, and the **Direct Feishu/Lark Commander** out of the box. |
+> | **[dsh-team-control](https://github.com/hunmer/dsh-team-control/)** ([@hunmer](https://github.com/hunmer)) | **🔥 Strongly recommended for `Flow` team orchestration** | `Flow` and `Plan Ultra` dispatch prioritize `dsh_team_spawn` and team SSE monitoring from `dsh-team-control`. **Installed** = full parallel subagent teams, dashboard & team alerts pushed to Feishu. **Absent** = no crash; gracefully falls back to host `subagent` or single-thread execution and notes it in the receipt. |
+> | **[dsh-im](https://github.com/xmanrui/dsh-im)** ([@xmanrui](https://github.com/xmanrui)) | **Optional** | No longer required in v0.6.0; install only if you also want WeChat / WeCom / DingTalk delivery alongside Feishu. |
 
 ```bash
-# Install from the GitHub repository into a profile (web shown here)
+# Install from GitHub (use `desktop` instead of `web` for the desktop profile)
 dsh plugin --profile web add github:MeZenith/dsh-flow
 ```
 
-After installing, enable `dsh-flow` in settings, reload the plugin and refresh the browser with `Ctrl + R`.
+Restart DSH and refresh with `Ctrl + R`. Open **Settings → Flow Workflow → Feishu**, customize your bot's name & avatar, and click **Scan QR to Create & Connect Bot** to go live in 30 seconds.
 
-#### Upgrade & update
-
-This project ships **only through the GitHub repository** — no npm package, no marketplace listing.
-
-**1) Update the plugin itself (preferred, in place):**
+#### Upgrading
 
 ```bash
-dsh plugin --profile web update dsh-flow    # use `desktop` for the desktop profile
-```
+# In-place update (preserves settings, credentials, and private prompts)
+dsh plugin --profile web update dsh-flow
 
-Restart DSH afterwards. An in-place update keeps your config, enabled state and private prompts.
-
-**2) Reinstall fallback (only when needed):**
-
-Use it when the GitHub source has no pinned version and `update` didn't fetch the latest commit, or when a local link install reports `already-installed`:
-
-```bash
+# Reinstall fallback if needed
 dsh plugin --profile web remove dsh-flow
 dsh plugin --profile web add github:MeZenith/dsh-flow
 ```
 
-> **Your data is safe**: private prompts live **outside the plugin directory** (`$DSH_PROFILE_DIR/data/dsh-flow/prompts/custom`, falling back to `~/.dsh-flow/prompts/custom`, overridable via `prompts.customDir`). Upgrading or reinstalling never removes them; a legacy in-package `custom/` folder is migrated once, without overwriting or deleting anything.
-
-**3) Update only the official prompt library:**
-
-Run `/flow prompts update`, or click the one-click update in Settings → Prompts. It diffs by `sha256` and never touches your private prompts.
-
-#### Defaults and where to turn them off
-
-| Capability | Default | Where to disable |
-|---|---|---|
-| Circuit breaker | on | Settings → Workflow & breaker (`circuit.enabled`) |
-| Team SSE listener | on | Same tab (`team.enabled`); it backs off silently when `dsh-team-control` is absent |
-| Mirror fallback | on (better for mainland networks) | Settings → Prompts → allow mirror fallback (`prompts.allowMirrorFallback`) |
-| Docs & gate | on | Settings → Workflow & breaker → "Docs & gate" card (`docs.enabled`, `gate.timeoutSeconds`) |
-| UI skill probe | on | Same card (`ui.skillProbe`) |
-
----
-
-### Prompt library architecture and customisation
-
-```text
-prompts/
-├── manifest.json           # version, updated time and per-file sha256 manifest
-├── base.md                 # global base engineering contract
-├── modes/                  # five modes: plan / plan-ultra / build / review / flow
-├── subagents/              # official subagent library (managed read-only source)
-│   ├── README.md           # subagent routing directory
-│   └── *.md                # the ten built-in specialist prompts
-```
-
-> Private overrides (`custom/subagents/`) live **outside the plugin package**:
-> `$DSH_PROFILE_DIR/data/dsh-flow/prompts/custom/subagents`, falling back to `~/.dsh-flow/prompts/custom/subagents`.
-> Upgrading or reinstalling the plugin never wipes them; a legacy in-package `prompts/custom/` is migrated once on startup.
-
-* **Three-tier priority with hot reload**: `settings override` > `local Markdown file` > `built-in fallback`; editing an on-disk `.md` file takes effect without a restart.
-* **Copy-on-write isolation**: editing an official subagent or adding a private one under "Prompts → Subagents" writes into the private data directory (`<customDir>/subagents/<id>.md`); an update only syncs the official directory incrementally, and deleting the override restores the official version instantly.
-* **Incremental update with rollback protection**: "Check for updates" (or `/flow prompts update`) fetches only changed files by `sha256`; when the remote mirror is older than the local copy the whole batch is skipped, so a stale cache cannot roll the library back.
-* **Authoring contract for custom subagents**: a new subagent must start with `# <id> | <one-line role summary>`; the settings list and the `Flow` / `Plan Ultra` dispatch directory both read the name and purpose from that line. The full specification (naming limits, four-part body and a standard template) is in [docs/DETAIL.md](./docs/DETAIL.md#自定义子代理编写规范--subagent-authoring-specification).
-
-<details>
-<summary><b>Expand the full slash-command reference</b></summary>
-
-<br/>
-
-| Command | Purpose |
-| :--- | :--- |
-| `/flow plan` | Switch to `Plan` mode (also `plan-ultra` / `build` / `review` / `flow` / `off`) |
-| `/flow` | Show the current workflow mode of this session |
-| `/flow spec` | Show the anchor status and summary of `.flow/spec.md` |
-| `/flow compact` | Trigger one manual context compaction with anchor re-attachment |
-| `/flow prompts list` | Show the local prompt version, per-mode sources and the official/private subagent inventory |
-| `/flow prompts update` | Incrementally update the official prompt library from the remote repository |
-| `/flow notify-test` | Self-test the IM push and SMTP archival channels |
-| `/flow retry` / `/flow escalate` / `/flow resume` | On desktop: retry after a trip / escalate to the diagnosis model / release the pause |
-
-</details>
-
-Full technical details (breaker state machine, IM command parsing, loopback API and environment variables) are documented in **[docs/DETAIL.md](./docs/DETAIL.md)**.
+For full technical architecture, local loopback API specs, and subagent authoring contracts, see **[docs/DETAIL.md](./docs/DETAIL.md)** and **[CHANGELOG.md](./CHANGELOG.md)**.
 
 ---
 
 ### Acknowledgements
 
-* **[OpenCode](https://github.com/anomalyco/opencode)**: the `Plan` / `Build` responsibility split and the multi-mode switching workflow in this project are inspired by OpenCode's architecture.
-* **[dsh-team-control](https://github.com/hunmer/dsh-team-control/)** ([@hunmer](https://github.com/hunmer)): team orchestration and collaboration monitoring for the DeepSeek Harness ecosystem.
-* **[dsh-im](https://github.com/xmanrui/dsh-im)** ([@xmanrui](https://github.com/xmanrui)): IM delivery and two-way messaging for the DeepSeek Harness ecosystem.
+* **[OpenCode](https://github.com/anomalyco/opencode)** — inspiration for the `Plan` / `Build` separation and multi-mode workflow design.
+* **[dsh-team-control](https://github.com/hunmer/dsh-team-control/)** ([@hunmer](https://github.com/hunmer)) — multi-agent team orchestration and monitoring in the DeepSeek Harness ecosystem.
+* **[dsh-im](https://github.com/xmanrui/dsh-im)** ([@xmanrui](https://github.com/xmanrui)) — multi-platform IM integration and Feishu SDK reference in the DeepSeek Harness ecosystem.
 
 ---
 
 ### License
 
-This project is released under the **[PolyForm Noncommercial License 1.0.0](./LICENSE)**:
-
-* **Permitted**: personal use, study and research, and modification, derivative work and distribution for non-commercial purposes;
-* **Prohibited**: any form of commercial use (integration into commercial products, paid services or for-profit distribution);
-* **Mandatory attribution**: any derivative work or redistribution **must clearly state that it uses `dsh-flow` code or is based on this project**, and must retain the full `LICENSE` text together with the notice below:
+Released under the **[PolyForm Noncommercial License 1.0.0](./LICENSE)** (non-commercial use only; attribution required):
 
 ```text
 Required Notice: Copyright (c) 2026 MeZenith (https://github.com/MeZenith/dsh-flow).
 Any derivative work or redistribution must clearly attribute dsh-flow and its original author.
 ```
 
-Third-party components under `vendor/` keep their own license terms; see [THIRD_PARTY_NOTES.md](./THIRD_PARTY_NOTES.md).
+See [THIRD_PARTY_NOTES.md](./THIRD_PARTY_NOTES.md) for third-party component notices.

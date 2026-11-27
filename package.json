@@ -1,86 +1,69 @@
 {
-    "name":  "dsh-flow",
-    "version":  "0.5.1",
-    "type":  "module",
-    "description":  "Flow 工作流与提示词管家：五大快捷模式、分层提示词注入、模式默认模型。",
-    "icon":  "./icon.svg",
-    "author":  "MeZenith",
-    "repository":  {
-                       "type":  "git",
-                       "url":  "git+https://github.com/MeZenith/dsh-flow.git"
-                   },
-    "homepage":  "https://github.com/MeZenith/dsh-flow#readme",
-    "bugs":  {
-                 "url":  "https://github.com/MeZenith/dsh-flow/issues"
-             },
-    "exports":  {
-                    ".":  "./index.js",
-                    "./client":  "./client.js",
-                    "./locale/*.json":  "./locale/*.json",
-                    "./icon":  "./icon.svg",
-                    "./package.json":  "./package.json"
-                },
-    "files":  [
-                  "index.js",
-                  "config.js",
-                  "modes.js",
-                  "mode-plan.js",
-                  "mode-projection.js",
-                  "prompt-bridge.js",
-                  "prompt-store.js",
-                  "prompt-updater.js",
-                  "prompt-api.js",
-                  "switch-mode.js",
-                  "spec-anchor.js",
-                  "compact-bridge.js",
-                  "activity.js",
-                  "circuit-breaker.js",
-                  "flow-level.js",
-                  "flow-docs.js",
-                  "gate-tickets.js",
-                  "gate-router.js",
-                  "gate-settle.js",
-                  "flow-ui-skill.js",
-                  "dispatch-declare.js",
-                  "qa-handoff.js",
-                  "notify.js",
-                  "notify-im.js",
-                  "notify-email.js",
-                  "smtp-client.js",
-                  "smtp-presets.js",
-                  "team-sse.js",
-                  "tools.js",
-                  "commands.js",
-                  "client.js",
-                  "cordis.patch.yml",
-                  "prompts",
-                  "vendor",
-                  "locale",
-                  "docs/DETAIL.md",
-                  "docs/flow-api-research.md",
-                  "icon.svg",
-                  "README.md",
-                  "THIRD_PARTY_NOTES.md",
-                  "README.en.md",
-                  "CHANGELOG.md",
-                  "LICENSE"
-              ],
-    "dsh":  {
-                "bundle":  {
-                               "patch":  "./cordis.patch.yml"
-                           },
-                "client":  {
-                               "inject":  [
-                                              "@deepseek-ai/dsh-client-connection",
-                                              "@deepseek-ai/dsh-client-runtime",
-                                              "@deepseek-ai/dsh-client-ui-slots",
-                                              "@deepseek-ai/dsh-client-locale",
-                                              "@deepseek-ai/dsh-client-ui-session",
-                                              "@deepseek-ai/dsh-client-ui-conversation",
-                                              "@deepseek-ai/dsh-client-ui-settings"
-                                          ],
-                               "platform":  "web"
-                           }
-            },
-    "license":  "PolyForm-Noncommercial-1.0.0"
+  "name": "dsh-flow",
+  "version": "0.6.0",
+  "type": "module",
+  "description": "Flow 工作流、提示词管家与直连飞书指挥官：五大模式、编号文档体系、连续报错熔断与多项目手机远程指挥。",
+  "icon": "./icon.svg",
+  "author": "MeZenith",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MeZenith/dsh-flow.git"
+  },
+  "homepage": "https://github.com/MeZenith/dsh-flow#readme",
+  "bugs": {
+    "url": "https://github.com/MeZenith/dsh-flow/issues"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "build:client": "node scripts/build-client.mjs",
+    "build:client:check": "node scripts/build-client.mjs --check",
+    "manifest:sync": "node scripts/sync-manifest.mjs",
+    "manifest:check": "node scripts/sync-manifest.mjs --check",
+    "check": "node --check index.js && node --check client.js && npm run build:client:check && npm run manifest:check"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.73.0"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "src",
+    "prompts",
+    "vendor",
+    "locale",
+    "cordis.patch.yml",
+    "docs/DETAIL.md",
+    "docs/flow-api-research.md",
+    "icon.svg",
+    "README.md",
+    "README.en.md",
+    "THIRD_PARTY_NOTES.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ],
+      "platform": "web"
+    }
+  },
+  "license": "PolyForm-Noncommercial-1.0.0"
 }

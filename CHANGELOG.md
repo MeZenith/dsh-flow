@@ -8,6 +8,52 @@
 
 暂无。
 
+## [0.6.0] - 2026-11-27
+
+全面架构重构 + **独立直连飞书指挥官（流式回复 / 原生 `/` 菜单 / 竞争式工具审批）** + **Apple 极简设置台** + 全部 P0/P1 痛点与缺陷清零。
+
+### Added
+
+- **独立直连飞书指挥官（`src/remote/feishu/`）**：内置 `@larksuiteoapi/node-sdk` 惰性集成，无需安装 `dsh-im`、无需公网服务器、无需 Tailscale：
+  - **自定义机器人名称与头像扫码建应用 + 零依赖高清矢量二维码（`qr-svg.js`）**：支持在扫码建应用前自定义名称、简介、内置公开头像库或自定义 `https://` 头像 URL，并内置标准 ISO/IEC 18004 SVG 二维码与对已有应用的「扫码一键补权」；
+  - **实时流式回复卡片（`reply-stream.js`）**：挂接 DSH 原生 `agent/inbox/claimed`、`agent/assistant-stream`、`session/event`，优先走飞书 CardKit 原生流式打字机（自动降级 `message.patch`），过程展示调用中的工具与 `[⏹ 停止]` 按钮，答完原地定稿并附底部快捷操作栏；超长回答自动分片；
+  - **开箱欢迎引导卡片 + 飞书原生 `/` 快捷指令菜单（`slash-commands.js`） + 图形化 `/mode` 模式切换卡片**：连接成功即发 3 秒上手指南卡片，自动注册 6 条飞书原生 `/` 菜单（`/m`、`/mode`、`/p`、`/stop`、`/help`、`/id`）；
+  - **多项目随时指挥**：飞书发 `/m` 弹出项目指挥台卡片点选切换；支持 `@项目名 指令` 直发、`/new`、`/p`、`/stop`、`/id` 与群聊话题隔离；
+  - **三大真互动审批卡片（含竞争式 DSH 工具审批）**：阶段门禁、连续报错熔断与 DSH 原生 `approval/request` 工具执行审批均推送可点击卡片，手机或桌面任意一端先决策即刻生效并原地同步置灰防误点；
+  - **防打扰开关与文档直传**：桌面日常对话默认不刷手机，新增 `feishu.syncDesktopReplies` 开关按需同步，`.flow/docs/*.md` 与 HTML 预览直接作为文件发到飞书。
+- **Apple 极简风格设置台（`src/client/`）**：重构为 4 个清爽分页（模式 / 工作流 / 飞书远程 / 提示词），全面引入分组 inset 列表、分段控件、滑动开关、步进器与折叠高级区；飞书页采用三态配对引导卡片。
+- **传输无关远程控制中枢（`src/remote/hub.js` & `harness-bridge.js`）**：沉淀 7 个远程原语 + 统一事件总线，为后续 Mobile PWA / Quick Tunnel 与端到端加密通道预留零耦合接口。
+- **模块化源码分层与自动化测试**：
+  - 根目录下 29 个扁平 `.js` 模块重构为清晰的 `src/{shared,config,modes,workflow,prompts,gates,resilience,notify,remote,tools,commands}` 分层架构；
+  - `client.js` 拆分为 `src/client/*` 并配零依赖构建脚本 `scripts/build-client.mjs`；
+  - 新增 `scripts/sync-manifest.mjs` 自动同步并校验 `prompts/manifest.json` 哈希；
+  - 引入 25 项 `node:test` 自动化回归测试套件（`npm test`）。
+- **`.flow/docs/` 直接落盘策略（D-01）**：`docs.writePolicy` 默认改为 `'auto'`（仍可在设置页切回 `'ask'`），彻底消除写文档二次审批内耗。
+- **新增命令与本地控制端点**：`/flow feishu status|connect|disconnect|test`、`/flow help`，以及 `/api/dsh-flow/notify/test` 与 `/api/dsh-flow/feishu/*`（含 `/welcome`、`/slash/sync`、`/onboard/upgrade`）。
+
+### Fixed
+
+- **飞书 SDK 与 DSH 凭据真实联调修复**：修复 `registerApp` 传入数字枚举 `lark.Domain.Feishu` 导致 `certificate has expired`、修正 `appPreset.desc` 与 `addons.callbacks.items`（`card.action.trigger`）、提取 `created.user_info.open_id`、`NO_PROXY` 同时豁免 `open.*` 与 `accounts.*`，以及对齐 DSH `ctx.credentials` 的 POSIX 凭据名规范（`DSH_FLOW_FEISHU_APP_SECRET`）与 `resolve/set/unset` 接口。
+
+- **B-01**：为 `src/prompts/store.js` 补齐 `info()`，彻底修复 `/flow prompts list` 崩溃。
+- **B-02**：重构 `src/client/` 组件边界，将所有 React Hooks 置于条件返回之前，消除 React Error #310。
+- **B-03**：门禁批准切模式时通过执行 `/flow <nextMode>` 写入 `command/run`，修复 `flowMode` 投影与顶部模式芯片不同步。
+- **B-04**：`attachAgentModeContext` 正确传入 `agent` 与 `stateStore`，修复会话级 S/M/L 等级不反映到提示词块的问题。
+- **B-05**：桌面会话仅有 1 张待决门禁时允许直接回复裸 `1/2/3/0`（支持多行意见），兑现界面承诺，并在同会话 `reject` 后用 `followup` 正确唤醒回合。
+- **B-06**：将 `tickets.supersede()` 移至全部文档/派单校验通过之后，修复参数被拒时误作废旧票的缺陷。
+- **B-07**：`kind:'acceptance'` 显式指定 `docIds:['06']` 时仅要求 `06-blackbox-qa.md`，不再强求尚未生成的 `07`。
+- **B-08**：修复内置 `smtp-client.js` 丢失多行 `250-` EHLO 能力（导致 STARTTLS 误失败）、`AUTH PLAIN/LOGIN` 回退错误、头部 CRLF 注入与连接超时缺失。
+- **B-09**：修复 `team-sse.js` 删除非终态成员导致首个成员结束即误报全队完成、漏检 `error.cause.code`、`CRLF` 分帧与 `Last-Event-ID` 断点续传。
+- **B-10**：修复熔断器正则误吞 `"100个文件"` / `"3个按钮"`、桌面锁定态 `3 <指令>` 未剥离前缀、以及解锁后延迟弹出过期熔断提醒（保存并取消通知句柄）。
+- **B-11**：统一 `fs-safe.js` 最近存在祖先 `realpathSync` 符号链接防护与并发安全原子写，覆盖 `spec-anchor`、`docs` 与 `gates.json`。
+- **B-12**：修复本地 API 畸形百分号编码 `URIError`、HEAD 响应体、校验失败错返 500 及写响应泄露绝对路径。
+- **M-01 ~ M-12**：修复设置页保存/新建失焦竞态、恢复默认/更新不刷新草稿、`promptSets` 按下标展开错位、SMTP/飞书密码框缺占位符与清空覆盖风险、缺失的设置项控件、无效 `bot.list` RPC、`pathsOverlap('src/*.js','src/*.ts')` 误报、`/flow gate answer` 大小写与唤醒、单票 `release`、开局自定义升降级解析、`agent/disposed` 内存清理等。
+
+### Changed
+
+- `.gitignore` 改为标准黑名单模式，`package.json.files` 改为目录级声明，不再漏提交/漏打包新模块。
+- 提示词 `prompts/base.md`、`prompts/modes/plan.md`、`prompts/modes/flow.md` 与 `prompts/subagents/README.md` 同步至 v0.6.0 规范并更新 `prompts/manifest.json`。
+
 ## [0.5.1] - 2026-11-26
 
 安全补丁：修掉本地接口的跨站注入面，并把用户私有提示词迁出插件包目录。
@@ -144,7 +190,10 @@
 - **按模式绑定默认模型与权限档位**。
 - **设置页**：模式胶囊切换、底层提示词编辑、模型与权限配置。
 
-[Unreleased]: https://github.com/MeZenith/dsh-flow/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/MeZenith/dsh-flow/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/MeZenith/dsh-flow/compare/v0.5.1...v0.6.0
+[0.5.1]: https://github.com/MeZenith/dsh-flow/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/MeZenith/dsh-flow/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/MeZenith/dsh-flow/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/MeZenith/dsh-flow/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/MeZenith/dsh-flow/compare/v0.1.0...v0.2.0
