@@ -211,7 +211,7 @@ export function createDocsTools({ getConfig, tickets, email, im, remoteHub, stat
       const sessionId = String(guard.agent.session?.id ?? '')
       const ids = docIdsOf(args?.docIds)
       if (ids.length === 0) return { outcome: 'unavailable', message: '至少要给一个文档编号。' }
-      const to = ['email', 'im', 'feishu', 'both'].includes(args?.to) ? args.to : 'email'
+      const to = ['email', 'im', 'feishu', 'both'].includes(args?.to) ? args.to : 'both'
       const sent = await deliverDoc({
         config,
         cwd,

@@ -11,7 +11,7 @@ window.__ModuleLoader__.load({
     const { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } = React
     const { createPortal } = ReactDOM
 
-    const CSS = "/* ---------- 聊天输入区芯片（对齐原生 PermissionSelect.trigger） ---------- */\n.dsh-flow-chip {\n  display: inline-flex;\n  align-items: center;\n  gap: 4px;\n  min-width: 0;\n  max-width: 220px;\n  height: 28px;\n  padding: 0 4px 0 8px;\n  border: none;\n  border-radius: var(--dsw-radius-sm);\n  outline: none;\n  background: transparent;\n  color: var(--dsw-alias-label-secondary);\n  font-size: 13px;\n  line-height: 20px;\n  font-weight: 500;\n  cursor: pointer;\n}\n@media (hover: hover) {\n  .dsh-flow-chip:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }\n}\n.dsh-flow-chip:focus-visible {\n  box-shadow: 0 0 0 2px var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));\n}\n.dsh-flow-chip:disabled { color: var(--dsw-alias-label-dimmed); cursor: default; }\n.dsh-flow-chip-label {\n  min-width: 0;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n.dsh-flow-chevron {\n  display: inline-flex;\n  flex: 0 0 auto;\n  color: var(--dsw-alias-label-tertiary);\n  transition: transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1);\n}\n.dsh-flow-chevron[data-open=\"true\"] { transform: rotate(180deg); }\n\n/* ---------- 通用弹层 ---------- */\n.dsh-flow-panel {\n  position: fixed;\n  z-index: 2147483000;\n  box-sizing: border-box;\n  max-height: 280px;\n  overflow-y: auto;\n  padding: 5px;\n  border: 1px solid var(--dsw-alias-border-l);\n  border-radius: 10px;\n  background: var(--dsw-alias-bg-module-platform);\n  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.14);\n}\n.dsh-flow-option {\n  display: flex;\n  align-items: flex-start;\n  gap: 8px;\n  width: 100%;\n  padding: 6px 9px;\n  border: none;\n  border-radius: 6px;\n  background: transparent;\n  color: var(--dsw-alias-label-primary);\n  text-align: left;\n  font: inherit;\n  font-size: 13px;\n  line-height: 18px;\n  cursor: pointer;\n}\n@media (hover: hover) {\n  .dsh-flow-option:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }\n}\n.dsh-flow-option[data-active=\"true\"] { color: var(--dsw-alias-state-business-primary); }\n.dsh-flow-option:disabled { color: var(--dsw-alias-label-dimmed); cursor: default; }\n.dsh-flow-option-body { display: flex; flex-direction: column; min-width: 0; flex: 1; }\n.dsh-flow-option-name { font-weight: 500; }\n.dsh-flow-option-desc {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n  line-height: 16px;\n  white-space: normal;\n}\n.dsh-flow-option-mark {\n  flex: 0 0 auto;\n  color: var(--dsw-alias-state-business-primary);\n  line-height: 18px;\n}\n.dsh-flow-group {\n  padding: 6px 9px 2px;\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 11px;\n  line-height: 14px;\n  letter-spacing: 0.04em;\n  text-transform: uppercase;\n  cursor: default;\n}\n.dsh-flow-sep {\n  height: 1px;\n  margin: 4px 6px;\n  background: var(--dsw-alias-border-l);\n}\n.dsh-flow-panel-error {\n  margin: 4px 6px 2px;\n  color: var(--dsw-alias-state-error-primary);\n  font-size: 12px;\n  line-height: 16px;\n  white-space: normal;\n}\n\n/* ---------- Apple 风格设置页整体骨架 ---------- */\n.dsh-flow-card {\n  display: flex;\n  flex-direction: column;\n  gap: 18px;\n  max-width: 680px;\n  color: var(--dsw-alias-label-primary);\n  font-size: 13px;\n  line-height: 20px;\n  -webkit-font-smoothing: antialiased;\n}\n.dsh-flow-head {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n}\n.dsh-flow-head-left {\n  display: flex;\n  align-items: center;\n  gap: 10px;\n  min-width: 0;\n}\n.dsh-flow-title {\n  font-size: 17px;\n  font-weight: 600;\n  letter-spacing: -0.015em;\n}\n.dsh-flow-saving {\n  font-size: 12px;\n  color: var(--dsw-alias-label-tertiary);\n}\n\n/* ---------- Apple 分段导航与分段控件 ---------- */\n.dsh-flow-seg {\n  display: inline-flex;\n  align-items: center;\n  gap: 2px;\n  padding: 3px;\n  border-radius: 9px;\n  background: var(--dsw-alias-interactive-bg-hover);\n  box-sizing: border-box;\n}\n.dsh-flow-seg-full {\n  display: flex;\n  width: 100%;\n}\n.dsh-flow-seg-btn {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  gap: 5px;\n  height: 26px;\n  padding: 0 11px;\n  border: none;\n  border-radius: 7px;\n  background: transparent;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  font-size: 12.5px;\n  font-weight: 500;\n  cursor: pointer;\n  white-space: nowrap;\n  transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;\n}\n.dsh-flow-seg-full .dsh-flow-seg-btn {\n  flex: 1;\n  height: 29px;\n  font-size: 13px;\n}\n@media (hover: hover) {\n  .dsh-flow-seg-btn:hover:not([data-active=\"true\"]):not(:disabled) {\n    color: var(--dsw-alias-label-primary);\n  }\n}\n.dsh-flow-seg-btn[data-active=\"true\"] {\n  background: var(--dsw-alias-bg-module-platform);\n  color: var(--dsw-alias-label-primary);\n  font-weight: 600;\n  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.09), 0 0 0 0.5px var(--dsw-alias-border-l);\n}\n.dsh-flow-seg-btn:disabled {\n  color: var(--dsw-alias-label-dimmed);\n  cursor: default;\n}\n.dsh-flow-seg-btn:focus-visible {\n  outline: none;\n  box-shadow: 0 0 0 2px var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));\n}\n\n/* ---------- 状态圆点 ---------- */\n.dsh-flow-dot {\n  display: inline-block;\n  width: 7px;\n  height: 7px;\n  border-radius: 999px;\n  flex: none;\n  background: var(--dsw-alias-label-dimmed);\n}\n.dsh-flow-dot[data-state=\"connected\"] { background: #34c759; }\n.dsh-flow-dot[data-state=\"connecting\"] { background: #ff9f0a; }\n.dsh-flow-dot[data-state=\"error\"] { background: var(--dsw-alias-state-error-primary); }\n\n/* ---------- Apple Inset Grouped 分组列表 ---------- */\n.dsh-flow-stack {\n  display: flex;\n  flex-direction: column;\n  gap: 18px;\n}\n.dsh-flow-sec {\n  display: flex;\n  flex-direction: column;\n  gap: 7px;\n}\n.dsh-flow-sec-head {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  padding: 0 4px;\n}\n.dsh-flow-sec-title {\n  font-size: 12px;\n  font-weight: 600;\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: 0.01em;\n}\n.dsh-flow-groupcard {\n  display: flex;\n  flex-direction: column;\n  border: 1px solid var(--dsw-alias-border-l);\n  border-radius: 12px;\n  background: var(--dsw-alias-bg-module-platform);\n  overflow: hidden;\n}\n.dsh-flow-setting-row {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 16px;\n  min-height: 46px;\n  padding: 10px 14px;\n  box-sizing: border-box;\n}\n.dsh-flow-setting-row + .dsh-flow-setting-row,\n.dsh-flow-setting-row + .dsh-flow-row-block,\n.dsh-flow-row-block + .dsh-flow-setting-row,\n.dsh-flow-row-block + .dsh-flow-row-block {\n  border-top: 1px solid var(--dsw-alias-border-l);\n}\n.dsh-flow-row-block {\n  display: flex;\n  flex-direction: column;\n  gap: 10px;\n  padding: 12px 14px;\n  box-sizing: border-box;\n}\n.dsh-flow-row-meta {\n  display: flex;\n  flex-direction: column;\n  gap: 1px;\n  min-width: 0;\n  flex: 1;\n}\n.dsh-flow-row-title {\n  font-size: 13px;\n  font-weight: 500;\n  color: var(--dsw-alias-label-primary);\n  line-height: 19px;\n}\n.dsh-flow-row-sub {\n  font-size: 11.5px;\n  color: var(--dsw-alias-label-tertiary);\n  line-height: 16px;\n}\n.dsh-flow-row-ctrl {\n  display: flex;\n  align-items: center;\n  justify-content: flex-end;\n  gap: 8px;\n  flex: none;\n  max-width: 60%;\n}\n.dsh-flow-row-ctrl-wide {\n  min-width: 190px;\n  width: 240px;\n  max-width: 58%;\n}\n@media (max-width: 560px) {\n  .dsh-flow-setting-row {\n    flex-direction: column;\n    align-items: stretch;\n    gap: 8px;\n  }\n  .dsh-flow-row-ctrl,\n  .dsh-flow-row-ctrl-wide {\n    max-width: 100%;\n    width: 100%;\n    justify-content: flex-start;\n  }\n}\n\n/* ---------- Apple Toggle Switch ---------- */\n.dsh-flow-switch {\n  position: relative;\n  display: inline-flex;\n  align-items: center;\n  width: 38px;\n  height: 22px;\n  padding: 2px;\n  border: none;\n  border-radius: 999px;\n  background: var(--dsw-alias-border-l);\n  cursor: pointer;\n  flex: none;\n  transition: background-color 180ms cubic-bezier(0.2, 0.8, 0.2, 1);\n  box-sizing: border-box;\n}\n.dsh-flow-switch[aria-checked=\"true\"] {\n  background: var(--dsw-alias-state-business-primary);\n}\n.dsh-flow-switch:disabled {\n  opacity: 0.45;\n  cursor: default;\n}\n.dsh-flow-switch:focus-visible {\n  outline: none;\n  box-shadow: 0 0 0 2px var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));\n}\n.dsh-flow-switch-thumb {\n  width: 18px;\n  height: 18px;\n  border-radius: 999px;\n  background: #ffffff;\n  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);\n  transform: translateX(0);\n  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);\n}\n.dsh-flow-switch[aria-checked=\"true\"] .dsh-flow-switch-thumb {\n  transform: translateX(16px);\n}\n\n/* ---------- Apple Stepper（步进器） ---------- */\n.dsh-flow-stepper {\n  display: inline-flex;\n  align-items: center;\n  border: 1px solid var(--dsw-alias-border-l);\n  border-radius: 8px;\n  overflow: hidden;\n  background: transparent;\n}\n.dsh-flow-stepper-btn {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  width: 28px;\n  height: 28px;\n  border: none;\n  background: transparent;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  font-size: 15px;\n  cursor: pointer;\n}\n@media (hover: hover) {\n  .dsh-flow-stepper-btn:hover:not(:disabled) {\n    background: var(--dsw-alias-interactive-bg-hover);\n  }\n}\n.dsh-flow-stepper-btn:disabled {\n  color: var(--dsw-alias-label-dimmed);\n  cursor: default;\n}\n.dsh-flow-stepper-val {\n  min-width: 44px;\n  padding: 0 6px;\n  text-align: center;\n  font-size: 13px;\n  font-weight: 500;\n  font-variant-numeric: tabular-nums;\n  border-left: 1px solid var(--dsw-alias-border-l);\n  border-right: 1px solid var(--dsw-alias-border-l);\n  line-height: 28px;\n}\n\n/* ---------- Apple 折叠展开分组（DisclosureGroup） ---------- */\n.dsh-flow-disclosure-btn {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n  width: 100%;\n  min-height: 44px;\n  padding: 10px 14px;\n  border: none;\n  background: transparent;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  font-size: 13px;\n  font-weight: 500;\n  text-align: left;\n  cursor: pointer;\n}\n@media (hover: hover) {\n  .dsh-flow-disclosure-btn:hover {\n    background: var(--dsw-alias-interactive-bg-hover);\n  }\n}\n.dsh-flow-disclosure-right {\n  display: inline-flex;\n  align-items: center;\n  gap: 8px;\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n  font-weight: 400;\n}\n.dsh-flow-disclosure-body {\n  border-top: 1px solid var(--dsw-alias-border-l);\n  display: flex;\n  flex-direction: column;\n}\n\n/* ---------- 自绘下拉触发按钮 ---------- */\n.dsh-flow-selecttrigger {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  width: 100%;\n  box-sizing: border-box;\n  height: 30px;\n  padding: 0 10px;\n  border: 1px solid var(--dsw-alias-border-l);\n  border-radius: 8px;\n  outline: none;\n  background: transparent;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  font-size: 13px;\n  line-height: 18px;\n  text-align: left;\n  cursor: pointer;\n}\n@media (hover: hover) {\n  .dsh-flow-selecttrigger:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }\n}\n.dsh-flow-selecttrigger:focus-visible {\n  box-shadow: 0 0 0 2px var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));\n}\n.dsh-flow-selecttrigger:disabled { color: var(--dsw-alias-label-dimmed); cursor: default; }\n.dsh-flow-selectvalue {\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n.dsh-flow-selectvalue[data-placeholder=\"true\"] { color: var(--dsw-alias-label-tertiary); }\n\n/* ---------- 输入框与文本域 ---------- */\n.dsh-flow-input, .dsh-flow-textarea {\n  width: 100%;\n  box-sizing: border-box;\n  padding: 6px 10px;\n  border: 1px solid var(--dsw-alias-border-l, var(--dsw-alias-label-dimmed, currentColor)) !important;\n  border-radius: 8px;\n  background: transparent;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  font-size: 13px;\n  line-height: 18px;\n}\n.dsh-flow-input { height: 32px; }\n.dsh-flow-textarea { min-height: 150px; resize: vertical; line-height: 19px; padding: 9px 11px; }\n.dsh-flow-input:hover:not(:disabled),\n.dsh-flow-textarea:hover:not(:disabled) {\n  border-color: var(--dsw-alias-label-tertiary) !important;\n}\n.dsh-flow-input:focus-visible, .dsh-flow-textarea:focus-visible {\n  outline: none;\n  border-color: var(--dsw-alias-state-business-primary) !important;\n  box-shadow: 0 0 0 2px var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));\n}\n.dsh-flow-input:disabled, .dsh-flow-textarea:disabled {\n  color: var(--dsw-alias-label-dimmed);\n  cursor: default;\n}\n\n/* ---------- 按钮 ---------- */\n.dsh-flow-btn {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  gap: 5px;\n  height: 30px;\n  padding: 0 12px;\n  border: 1px solid var(--dsw-alias-border-l);\n  border-radius: 8px;\n  background: transparent;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  font-size: 12.5px;\n  font-weight: 500;\n  cursor: pointer;\n  white-space: nowrap;\n  text-decoration: none;\n  transition: background-color 140ms ease, opacity 140ms ease;\n}\n@media (hover: hover) {\n  .dsh-flow-btn:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }\n}\n.dsh-flow-btn-primary {\n  border-color: var(--dsw-alias-state-business-primary);\n  background: var(--dsw-alias-state-business-primary);\n  color: #ffffff;\n}\n@media (hover: hover) {\n  .dsh-flow-btn-primary:hover:not(:disabled) {\n    background: var(--dsw-alias-state-business-primary);\n    opacity: 0.9;\n  }\n}\n.dsh-flow-btn-lg {\n  height: 38px;\n  padding: 0 20px;\n  border-radius: 10px;\n  font-size: 13.5px;\n  font-weight: 600;\n}\n.dsh-flow-btn-link {\n  border: none;\n  background: transparent;\n  color: var(--dsw-alias-state-business-primary);\n  padding: 0 6px;\n  height: 26px;\n  font-size: 12.5px;\n  font-weight: 500;\n  cursor: pointer;\n  text-decoration: none;\n}\n@media (hover: hover) {\n  .dsh-flow-btn-link:hover:not(:disabled) { text-decoration: underline; }\n}\n.dsh-flow-btn-danger {\n  color: var(--dsw-alias-state-error-primary);\n  border-color: var(--dsw-alias-border-l);\n}\n.dsh-flow-btn:disabled { opacity: 0.45; cursor: default; }\n\n.dsh-flow-iconbtn {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  flex: none;\n  width: 26px;\n  height: 26px;\n  padding: 0;\n  border: none;\n  border-radius: 6px;\n  background: transparent;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  font-size: 14px;\n  cursor: pointer;\n}\n@media (hover: hover) {\n  .dsh-flow-iconbtn:hover:not(:disabled) {\n    background: var(--dsw-alias-interactive-bg-hover);\n    color: var(--dsw-alias-label-primary);\n  }\n}\n\n/* ---------- 轻量标签 / 胶囊 / 提示条 ---------- */\n.dsh-flow-pill-row { display: flex; flex-wrap: wrap; gap: 6px; }\n.dsh-flow-pill {\n  height: 26px;\n  padding: 0 11px;\n  border: 1px solid var(--dsw-alias-border-l);\n  border-radius: 999px;\n  background: transparent;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  font-size: 12px;\n  font-weight: 500;\n  cursor: pointer;\n}\n.dsh-flow-pill[data-active=\"true\"] {\n  border-color: var(--dsw-alias-state-business-primary);\n  background: var(--dsw-alias-state-business-primary);\n  color: #ffffff;\n}\n.dsh-flow-badge {\n  display: inline-flex;\n  align-items: center;\n  gap: 5px;\n  height: 22px;\n  padding: 0 8px;\n  border-radius: 999px;\n  background: var(--dsw-alias-interactive-bg-hover);\n  color: var(--dsw-alias-label-secondary);\n  font-size: 11.5px;\n  font-weight: 500;\n  white-space: nowrap;\n}\n.dsh-flow-toast {\n  padding: 9px 12px;\n  border-radius: 10px;\n  border: 1px solid var(--dsw-alias-border-l);\n  background: var(--dsw-alias-interactive-bg-hover);\n  color: var(--dsw-alias-label-primary);\n  font-size: 12.5px;\n  line-height: 18px;\n}\n.dsh-flow-toast-err {\n  border-color: var(--dsw-alias-state-error-primary);\n  color: var(--dsw-alias-state-error-primary);\n  background: transparent;\n}\n.dsh-flow-hint { color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 17px; }\n.dsh-flow-empty { padding: 20px 14px; text-align: center; color: var(--dsw-alias-label-tertiary); font-size: 12.5px; }\n.dsh-flow-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }\n.dsh-flow-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }\n@media (max-width: 560px) { .dsh-flow-grid2 { grid-template-columns: 1fr; } }\n.dsh-flow-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }\n.dsh-flow-fieldlabel { color: var(--dsw-alias-label-secondary); font-size: 12px; font-weight: 500; }\n\n/* ---------- 飞书指挥官 Hero 与扫码配对体验 ---------- */\n.dsh-flow-hero {\n  display: flex;\n  flex-direction: column;\n  border: 1px solid var(--dsw-alias-border-l);\n  border-radius: 14px;\n  background: var(--dsw-alias-bg-module-platform);\n  overflow: hidden;\n}\n.dsh-flow-hero-top {\n  display: flex;\n  align-items: center;\n  gap: 14px;\n  padding: 16px;\n}\n.dsh-flow-avatar {\n  width: 48px;\n  height: 48px;\n  border-radius: 13px;\n  border: 1px solid var(--dsw-alias-border-l);\n  object-fit: cover;\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  font-size: 24px;\n  flex: none;\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n.dsh-flow-hero-info {\n  display: flex;\n  flex-direction: column;\n  gap: 3px;\n  flex: 1;\n  min-width: 0;\n}\n.dsh-flow-hero-name-row {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  flex-wrap: wrap;\n}\n.dsh-flow-hero-name {\n  font-size: 15px;\n  font-weight: 600;\n  letter-spacing: -0.01em;\n}\n.dsh-flow-hero-meta {\n  font-size: 12px;\n  color: var(--dsw-alias-label-tertiary);\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n/* 头像气泡选择器 */\n.dsh-flow-avatar-strip {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  flex-wrap: wrap;\n}\n.dsh-flow-avatar-dot {\n  position: relative;\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  width: 36px;\n  height: 36px;\n  padding: 3px;\n  border: 2px solid transparent;\n  border-radius: 11px;\n  background: var(--dsw-alias-interactive-bg-hover);\n  cursor: pointer;\n  transition: transform 140ms ease, border-color 140ms ease;\n}\n@media (hover: hover) {\n  .dsh-flow-avatar-dot:hover:not(:disabled) { transform: scale(1.06); }\n}\n.dsh-flow-avatar-dot[data-active=\"true\"] {\n  border-color: var(--dsw-alias-state-business-primary);\n}\n.dsh-flow-avatar-dot img {\n  width: 26px;\n  height: 26px;\n  border-radius: 7px;\n  object-fit: cover;\n}\n\n/* 居中引导动作区 & 扫码配对区 */\n.dsh-flow-cta-area {\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  gap: 10px;\n  padding: 16px;\n  border-top: 1px solid var(--dsw-alias-border-l);\n}\n.dsh-flow-qr-stage {\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  gap: 14px;\n  padding: 20px 16px;\n  border-top: 1px solid var(--dsw-alias-border-l);\n}\n.dsh-flow-qr-frame {\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  width: 196px;\n  height: 196px;\n  padding: 10px;\n  border-radius: 14px;\n  background: #ffffff;\n  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.06);\n  box-sizing: border-box;\n}\n.dsh-flow-qr-frame img {\n  width: 100%;\n  height: 100%;\n  display: block;\n}\n.dsh-flow-steps {\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  gap: 10px;\n  flex-wrap: wrap;\n}\n.dsh-flow-step {\n  display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  font-size: 12px;\n  color: var(--dsw-alias-label-tertiary);\n}\n.dsh-flow-step[data-active=\"true\"] {\n  color: var(--dsw-alias-label-primary);\n  font-weight: 600;\n}\n.dsh-flow-step[data-done=\"true\"] {\n  color: var(--dsw-alias-state-business-primary);\n}\n.dsh-flow-step-num {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  width: 18px;\n  height: 18px;\n  border-radius: 999px;\n  font-size: 11px;\n  font-weight: 600;\n  background: var(--dsw-alias-interactive-bg-hover);\n  color: var(--dsw-alias-label-secondary);\n}\n.dsh-flow-step[data-active=\"true\"] .dsh-flow-step-num,\n.dsh-flow-step[data-done=\"true\"] .dsh-flow-step-num {\n  background: var(--dsw-alias-state-business-primary);\n  color: #ffffff;\n}\n.dsh-flow-step-arrow {\n  color: var(--dsw-alias-label-dimmed);\n  font-size: 11px;\n}\n\n/* 已连接「下一步」行动条 */\n.dsh-flow-nextbar {\n  display: flex;\n  flex-direction: column;\n  gap: 10px;\n  padding: 13px 16px;\n  border-top: 1px solid var(--dsw-alias-border-l);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n.dsh-flow-next-list {\n  display: flex;\n  flex-direction: column;\n  gap: 6px;\n}\n.dsh-flow-next-item {\n  display: flex;\n  align-items: baseline;\n  gap: 8px;\n  font-size: 12.5px;\n  color: var(--dsw-alias-label-secondary);\n  line-height: 18px;\n}\n.dsh-flow-next-item code {\n  padding: 1px 5px;\n  border-radius: 5px;\n  background: var(--dsw-alias-bg-module-platform);\n  color: var(--dsw-alias-label-primary);\n  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;\n  font-size: 12px;\n}\n.dsh-flow-mode-summary {\n  padding: 0 4px;\n  font-size: 12px;\n  color: var(--dsw-alias-label-tertiary);\n}\n"
+    const CSS = "/* ---------- 聊天输入区芯片（对齐原生 PermissionSelect.trigger） ---------- */\n.dsh-flow-chip {\n  display: inline-flex;\n  align-items: center;\n  gap: 4px;\n  min-width: 0;\n  max-width: 220px;\n  height: 28px;\n  padding: 0 4px 0 8px;\n  border: none;\n  border-radius: var(--dsw-radius-sm);\n  outline: none;\n  background: transparent;\n  color: var(--dsw-alias-label-secondary);\n  font-size: 13px;\n  line-height: 20px;\n  font-weight: 500;\n  cursor: pointer;\n}\n@media (hover: hover) {\n  .dsh-flow-chip:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }\n}\n.dsh-flow-chip:focus-visible {\n  box-shadow: 0 0 0 2px var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));\n}\n.dsh-flow-chip:disabled { color: var(--dsw-alias-label-dimmed); cursor: default; }\n.dsh-flow-chip-label {\n  min-width: 0;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n.dsh-flow-chevron {\n  display: inline-flex;\n  flex: 0 0 auto;\n  color: var(--dsw-alias-label-tertiary);\n  transition: transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1);\n}\n.dsh-flow-chevron[data-open=\"true\"] { transform: rotate(180deg); }\n\n/* ---------- 通用弹层 ---------- */\n.dsh-flow-panel {\n  position: fixed;\n  z-index: 2147483000;\n  box-sizing: border-box;\n  max-height: 280px;\n  overflow-y: auto;\n  padding: 5px;\n  border: 1px solid var(--dsw-alias-border-l);\n  border-radius: 10px;\n  background: var(--dsw-alias-bg-module-platform);\n  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.14);\n}\n.dsh-flow-option {\n  display: flex;\n  align-items: flex-start;\n  gap: 8px;\n  width: 100%;\n  padding: 6px 9px;\n  border: none;\n  border-radius: 6px;\n  background: transparent;\n  color: var(--dsw-alias-label-primary);\n  text-align: left;\n  font: inherit;\n  font-size: 13px;\n  line-height: 18px;\n  cursor: pointer;\n}\n@media (hover: hover) {\n  .dsh-flow-option:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }\n}\n.dsh-flow-option[data-active=\"true\"] { color: var(--dsw-alias-state-business-primary); }\n.dsh-flow-option:disabled { color: var(--dsw-alias-label-dimmed); cursor: default; }\n.dsh-flow-option-body { display: flex; flex-direction: column; min-width: 0; flex: 1; }\n.dsh-flow-option-name { font-weight: 500; }\n.dsh-flow-option-desc {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n  line-height: 16px;\n  white-space: normal;\n}\n.dsh-flow-option-mark {\n  flex: 0 0 auto;\n  color: var(--dsw-alias-state-business-primary);\n  line-height: 18px;\n}\n.dsh-flow-group {\n  padding: 6px 9px 2px;\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 11px;\n  line-height: 14px;\n  letter-spacing: 0.04em;\n  text-transform: uppercase;\n  cursor: default;\n}\n.dsh-flow-sep {\n  height: 1px;\n  margin: 4px 6px;\n  background: var(--dsw-alias-border-l);\n}\n.dsh-flow-panel-error {\n  margin: 4px 6px 2px;\n  color: var(--dsw-alias-state-error-primary);\n  font-size: 12px;\n  line-height: 16px;\n  white-space: normal;\n}\n\n/* ---------- Apple 风格设置页整体骨架 ---------- */\n.dsh-flow-card {\n  display: flex;\n  flex-direction: column;\n  gap: 18px;\n  max-width: 680px;\n  color: var(--dsw-alias-label-primary);\n  font-size: 13px;\n  line-height: 20px;\n  -webkit-font-smoothing: antialiased;\n}\n.dsh-flow-head {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n}\n.dsh-flow-head-left {\n  display: flex;\n  align-items: center;\n  gap: 10px;\n  min-width: 0;\n}\n.dsh-flow-title {\n  font-size: 17px;\n  font-weight: 600;\n  letter-spacing: -0.015em;\n}\n.dsh-flow-saving {\n  font-size: 12px;\n  color: var(--dsw-alias-label-tertiary);\n}\n\n/* ---------- Apple 分段导航与分段控件 ---------- */\n.dsh-flow-seg {\n  display: inline-flex;\n  align-items: center;\n  gap: 2px;\n  padding: 3px;\n  border-radius: 9px;\n  background: var(--dsw-alias-interactive-bg-hover);\n  box-sizing: border-box;\n}\n.dsh-flow-seg-full {\n  display: flex;\n  width: 100%;\n}\n.dsh-flow-seg-btn {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  gap: 5px;\n  height: 26px;\n  padding: 0 11px;\n  border: none;\n  border-radius: 7px;\n  background: transparent;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  font-size: 12.5px;\n  font-weight: 500;\n  cursor: pointer;\n  white-space: nowrap;\n  transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;\n}\n.dsh-flow-seg-full .dsh-flow-seg-btn {\n  flex: 1;\n  height: 29px;\n  font-size: 13px;\n}\n@media (hover: hover) {\n  .dsh-flow-seg-btn:hover:not([data-active=\"true\"]):not(:disabled) {\n    color: var(--dsw-alias-label-primary);\n  }\n}\n.dsh-flow-seg-btn[data-active=\"true\"] {\n  background: var(--dsw-alias-bg-module-platform);\n  color: var(--dsw-alias-label-primary);\n  font-weight: 600;\n  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.09), 0 0 0 0.5px var(--dsw-alias-border-l);\n}\n.dsh-flow-seg-btn:disabled {\n  color: var(--dsw-alias-label-dimmed);\n  cursor: default;\n}\n.dsh-flow-seg-btn:focus-visible {\n  outline: none;\n  box-shadow: 0 0 0 2px var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));\n}\n\n/* ---------- 状态圆点 ---------- */\n.dsh-flow-dot {\n  display: inline-block;\n  width: 7px;\n  height: 7px;\n  border-radius: 999px;\n  flex: none;\n  background: var(--dsw-alias-label-dimmed);\n}\n.dsh-flow-dot[data-state=\"connected\"] { background: #34c759; }\n.dsh-flow-dot[data-state=\"connecting\"] { background: #ff9f0a; }\n.dsh-flow-dot[data-state=\"error\"] { background: var(--dsw-alias-state-error-primary); }\n\n/* ---------- Apple Inset Grouped 分组列表 ---------- */\n.dsh-flow-stack {\n  display: flex;\n  flex-direction: column;\n  gap: 18px;\n}\n.dsh-flow-sec {\n  display: flex;\n  flex-direction: column;\n  gap: 7px;\n}\n.dsh-flow-sec-head {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  padding: 0 4px;\n}\n.dsh-flow-sec-title {\n  font-size: 12px;\n  font-weight: 600;\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: 0.01em;\n}\n.dsh-flow-groupcard {\n  display: flex;\n  flex-direction: column;\n  border: 1px solid var(--dsw-alias-border-l);\n  border-radius: 12px;\n  background: var(--dsw-alias-bg-module-platform);\n  overflow: hidden;\n}\n.dsh-flow-setting-row {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 16px;\n  min-height: 46px;\n  padding: 10px 14px;\n  box-sizing: border-box;\n}\n.dsh-flow-setting-row + .dsh-flow-setting-row,\n.dsh-flow-setting-row + .dsh-flow-row-block,\n.dsh-flow-row-block + .dsh-flow-setting-row,\n.dsh-flow-row-block + .dsh-flow-row-block {\n  border-top: 1px solid var(--dsw-alias-border-l);\n}\n.dsh-flow-row-block {\n  display: flex;\n  flex-direction: column;\n  gap: 10px;\n  padding: 12px 14px;\n  box-sizing: border-box;\n}\n.dsh-flow-row-meta {\n  display: flex;\n  flex-direction: column;\n  gap: 1px;\n  min-width: 0;\n  flex: 1;\n}\n.dsh-flow-row-title {\n  font-size: 13px;\n  font-weight: 500;\n  color: var(--dsw-alias-label-primary);\n  line-height: 19px;\n}\n.dsh-flow-row-sub {\n  font-size: 11.5px;\n  color: var(--dsw-alias-label-tertiary);\n  line-height: 16px;\n}\n.dsh-flow-row-ctrl {\n  display: flex;\n  align-items: center;\n  justify-content: flex-end;\n  gap: 8px;\n  flex: none;\n  max-width: 60%;\n}\n.dsh-flow-row-ctrl-wide {\n  min-width: 190px;\n  width: 240px;\n  max-width: 58%;\n}\n@media (max-width: 560px) {\n  .dsh-flow-setting-row {\n    flex-direction: column;\n    align-items: stretch;\n    gap: 8px;\n  }\n  .dsh-flow-row-ctrl,\n  .dsh-flow-row-ctrl-wide {\n    max-width: 100%;\n    width: 100%;\n    justify-content: flex-start;\n  }\n}\n\n/* ---------- Apple Toggle Switch ---------- */\n.dsh-flow-switch {\n  position: relative;\n  display: inline-flex;\n  align-items: center;\n  width: 38px;\n  height: 22px;\n  padding: 2px;\n  border: none;\n  border-radius: 999px;\n  background: var(--dsw-alias-label-dimmed, rgba(128, 128, 128, 0.38));\n  box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l);\n  cursor: pointer;\n  flex: none;\n  transition: background-color 180ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 180ms ease;\n  box-sizing: border-box;\n}\n.dsh-flow-switch[aria-checked=\"true\"] {\n  background: var(--dsw-alias-state-business-primary);\n  box-shadow: none;\n}\n.dsh-flow-switch:disabled {\n  opacity: 0.45;\n  cursor: default;\n}\n.dsh-flow-switch:focus-visible {\n  outline: none;\n  box-shadow: 0 0 0 2px var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));\n}\n.dsh-flow-switch-thumb {\n  width: 18px;\n  height: 18px;\n  border-radius: 999px;\n  background: #ffffff;\n  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);\n  transform: translateX(0);\n  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);\n}\n.dsh-flow-switch[aria-checked=\"true\"] .dsh-flow-switch-thumb {\n  transform: translateX(16px);\n}\n\n/* ---------- Apple Stepper（步进器） ---------- */\n.dsh-flow-stepper {\n  display: inline-flex;\n  align-items: center;\n  border: 1px solid var(--dsw-alias-border-l);\n  border-radius: 8px;\n  overflow: hidden;\n  background: transparent;\n}\n.dsh-flow-stepper-btn {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  width: 28px;\n  height: 28px;\n  border: none;\n  background: transparent;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  font-size: 15px;\n  cursor: pointer;\n}\n@media (hover: hover) {\n  .dsh-flow-stepper-btn:hover:not(:disabled) {\n    background: var(--dsw-alias-interactive-bg-hover);\n  }\n}\n.dsh-flow-stepper-btn:disabled {\n  color: var(--dsw-alias-label-dimmed);\n  cursor: default;\n}\n.dsh-flow-stepper-val {\n  min-width: 44px;\n  padding: 0 6px;\n  text-align: center;\n  font-size: 13px;\n  font-weight: 500;\n  font-variant-numeric: tabular-nums;\n  border-left: 1px solid var(--dsw-alias-border-l);\n  border-right: 1px solid var(--dsw-alias-border-l);\n  line-height: 28px;\n}\n\n/* ---------- Apple 折叠展开分组（DisclosureGroup） ---------- */\n.dsh-flow-disclosure-btn {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n  width: 100%;\n  min-height: 44px;\n  padding: 10px 14px;\n  border: none;\n  background: transparent;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  font-size: 13px;\n  font-weight: 500;\n  text-align: left;\n  cursor: pointer;\n}\n@media (hover: hover) {\n  .dsh-flow-disclosure-btn:hover {\n    background: var(--dsw-alias-interactive-bg-hover);\n  }\n}\n.dsh-flow-disclosure-right {\n  display: inline-flex;\n  align-items: center;\n  gap: 8px;\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n  font-weight: 400;\n}\n.dsh-flow-disclosure-body {\n  border-top: 1px solid var(--dsw-alias-border-l);\n  display: flex;\n  flex-direction: column;\n}\n\n/* ---------- 自绘下拉触发按钮 ---------- */\n.dsh-flow-selecttrigger {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  width: 100%;\n  box-sizing: border-box;\n  height: 30px;\n  padding: 0 10px;\n  border: 1px solid var(--dsw-alias-border-l);\n  border-radius: 8px;\n  outline: none;\n  background: transparent;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  font-size: 13px;\n  line-height: 18px;\n  text-align: left;\n  cursor: pointer;\n}\n@media (hover: hover) {\n  .dsh-flow-selecttrigger:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }\n}\n.dsh-flow-selecttrigger:focus-visible {\n  box-shadow: 0 0 0 2px var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));\n}\n.dsh-flow-selecttrigger:disabled { color: var(--dsw-alias-label-dimmed); cursor: default; }\n.dsh-flow-selectvalue {\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n.dsh-flow-selectvalue[data-placeholder=\"true\"] { color: var(--dsw-alias-label-tertiary); }\n\n/* ---------- 输入框与文本域 ---------- */\n.dsh-flow-input, .dsh-flow-textarea {\n  width: 100%;\n  box-sizing: border-box;\n  padding: 6px 10px;\n  border: 1px solid var(--dsw-alias-border-l, var(--dsw-alias-label-dimmed, currentColor)) !important;\n  border-radius: 8px;\n  background: transparent;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  font-size: 13px;\n  line-height: 18px;\n}\n.dsh-flow-input { height: 32px; }\n.dsh-flow-textarea { min-height: 150px; resize: vertical; line-height: 19px; padding: 9px 11px; }\n.dsh-flow-input:hover:not(:disabled),\n.dsh-flow-textarea:hover:not(:disabled) {\n  border-color: var(--dsw-alias-label-tertiary) !important;\n}\n.dsh-flow-input:focus-visible, .dsh-flow-textarea:focus-visible {\n  outline: none;\n  border-color: var(--dsw-alias-state-business-primary) !important;\n  box-shadow: 0 0 0 2px var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));\n}\n.dsh-flow-input:disabled, .dsh-flow-textarea:disabled {\n  color: var(--dsw-alias-label-dimmed);\n  cursor: default;\n}\n\n/* ---------- 按钮 ---------- */\n.dsh-flow-btn {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  gap: 5px;\n  height: 30px;\n  padding: 0 12px;\n  border: 1px solid var(--dsw-alias-border-l);\n  border-radius: 8px;\n  background: transparent;\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  font-size: 12.5px;\n  font-weight: 500;\n  cursor: pointer;\n  white-space: nowrap;\n  text-decoration: none;\n  transition: background-color 140ms ease, opacity 140ms ease;\n}\n@media (hover: hover) {\n  .dsh-flow-btn:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }\n}\n.dsh-flow-btn-primary {\n  border-color: var(--dsw-alias-state-business-primary);\n  background: var(--dsw-alias-state-business-primary);\n  color: #ffffff;\n}\n@media (hover: hover) {\n  .dsh-flow-btn-primary:hover:not(:disabled) {\n    background: var(--dsw-alias-state-business-primary);\n    opacity: 0.9;\n  }\n}\n.dsh-flow-btn-lg {\n  height: 38px;\n  padding: 0 20px;\n  border-radius: 10px;\n  font-size: 13.5px;\n  font-weight: 600;\n}\n.dsh-flow-btn-link {\n  border: none;\n  background: transparent;\n  color: var(--dsw-alias-state-business-primary);\n  padding: 0 6px;\n  height: 26px;\n  font-size: 12.5px;\n  font-weight: 500;\n  cursor: pointer;\n  text-decoration: none;\n}\n@media (hover: hover) {\n  .dsh-flow-btn-link:hover:not(:disabled) { text-decoration: underline; }\n}\n.dsh-flow-btn-danger {\n  color: var(--dsw-alias-state-error-primary);\n  border-color: var(--dsw-alias-border-l);\n}\n.dsh-flow-btn:disabled { opacity: 0.45; cursor: default; }\n\n.dsh-flow-iconbtn {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  flex: none;\n  width: 26px;\n  height: 26px;\n  padding: 0;\n  border: none;\n  border-radius: 6px;\n  background: transparent;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  font-size: 14px;\n  cursor: pointer;\n}\n@media (hover: hover) {\n  .dsh-flow-iconbtn:hover:not(:disabled) {\n    background: var(--dsw-alias-interactive-bg-hover);\n    color: var(--dsw-alias-label-primary);\n  }\n}\n\n/* ---------- 轻量标签 / 胶囊 / 提示条 ---------- */\n.dsh-flow-pill-row { display: flex; flex-wrap: wrap; gap: 6px; }\n.dsh-flow-pill {\n  height: 26px;\n  padding: 0 11px;\n  border: 1px solid var(--dsw-alias-border-l);\n  border-radius: 999px;\n  background: transparent;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  font-size: 12px;\n  font-weight: 500;\n  cursor: pointer;\n}\n.dsh-flow-pill[data-active=\"true\"] {\n  border-color: var(--dsw-alias-state-business-primary);\n  background: var(--dsw-alias-state-business-primary);\n  color: #ffffff;\n}\n.dsh-flow-badge {\n  display: inline-flex;\n  align-items: center;\n  gap: 5px;\n  height: 22px;\n  padding: 0 8px;\n  border-radius: 999px;\n  background: var(--dsw-alias-interactive-bg-hover);\n  color: var(--dsw-alias-label-secondary);\n  font-size: 11.5px;\n  font-weight: 500;\n  white-space: nowrap;\n}\n.dsh-flow-toast {\n  padding: 9px 12px;\n  border-radius: 10px;\n  border: 1px solid var(--dsw-alias-border-l);\n  background: var(--dsw-alias-interactive-bg-hover);\n  color: var(--dsw-alias-label-primary);\n  font-size: 12.5px;\n  line-height: 18px;\n}\n.dsh-flow-toast-err {\n  border-color: var(--dsw-alias-state-error-primary);\n  color: var(--dsw-alias-state-error-primary);\n  background: transparent;\n}\n.dsh-flow-hint { color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 17px; }\n.dsh-flow-empty { padding: 20px 14px; text-align: center; color: var(--dsw-alias-label-tertiary); font-size: 12.5px; }\n.dsh-flow-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }\n.dsh-flow-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }\n@media (max-width: 560px) { .dsh-flow-grid2 { grid-template-columns: 1fr; } }\n.dsh-flow-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }\n.dsh-flow-fieldlabel { color: var(--dsw-alias-label-secondary); font-size: 12px; font-weight: 500; }\n\n/* ---------- 飞书指挥官 Hero 与扫码配对体验 ---------- */\n.dsh-flow-hero {\n  display: flex;\n  flex-direction: column;\n  border: 1px solid var(--dsw-alias-border-l);\n  border-radius: 14px;\n  background: var(--dsw-alias-bg-module-platform);\n  overflow: hidden;\n}\n.dsh-flow-hero-top {\n  display: flex;\n  align-items: center;\n  gap: 14px;\n  padding: 16px;\n}\n.dsh-flow-avatar {\n  width: 48px;\n  height: 48px;\n  border-radius: 13px;\n  border: 1px solid var(--dsw-alias-border-l);\n  object-fit: cover;\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  font-size: 24px;\n  flex: none;\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n.dsh-flow-hero-info {\n  display: flex;\n  flex-direction: column;\n  gap: 3px;\n  flex: 1;\n  min-width: 0;\n}\n.dsh-flow-hero-name-row {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  flex-wrap: wrap;\n}\n.dsh-flow-hero-name {\n  font-size: 15px;\n  font-weight: 600;\n  letter-spacing: -0.01em;\n}\n.dsh-flow-hero-meta {\n  font-size: 12px;\n  color: var(--dsw-alias-label-tertiary);\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n/* 头像气泡选择器 */\n.dsh-flow-avatar-strip {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  flex-wrap: wrap;\n}\n.dsh-flow-avatar-dot {\n  position: relative;\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  width: 36px;\n  height: 36px;\n  padding: 3px;\n  border: 2px solid transparent;\n  border-radius: 11px;\n  background: var(--dsw-alias-interactive-bg-hover);\n  cursor: pointer;\n  transition: transform 140ms ease, border-color 140ms ease;\n}\n@media (hover: hover) {\n  .dsh-flow-avatar-dot:hover:not(:disabled) { transform: scale(1.06); }\n}\n.dsh-flow-avatar-dot[data-active=\"true\"] {\n  border-color: var(--dsw-alias-state-business-primary);\n}\n.dsh-flow-avatar-dot img {\n  width: 26px;\n  height: 26px;\n  border-radius: 7px;\n  object-fit: cover;\n}\n\n/* 居中引导动作区 & 扫码配对区 */\n.dsh-flow-cta-area {\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  gap: 10px;\n  padding: 16px;\n  border-top: 1px solid var(--dsw-alias-border-l);\n}\n.dsh-flow-qr-stage {\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  gap: 14px;\n  padding: 20px 16px;\n  border-top: 1px solid var(--dsw-alias-border-l);\n}\n.dsh-flow-qr-frame {\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  width: 196px;\n  height: 196px;\n  padding: 10px;\n  border-radius: 14px;\n  background: #ffffff;\n  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.06);\n  box-sizing: border-box;\n}\n.dsh-flow-qr-frame img {\n  width: 100%;\n  height: 100%;\n  display: block;\n}\n.dsh-flow-steps {\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  gap: 10px;\n  flex-wrap: wrap;\n}\n.dsh-flow-step {\n  display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  font-size: 12px;\n  color: var(--dsw-alias-label-tertiary);\n}\n.dsh-flow-step[data-active=\"true\"] {\n  color: var(--dsw-alias-label-primary);\n  font-weight: 600;\n}\n.dsh-flow-step[data-done=\"true\"] {\n  color: var(--dsw-alias-state-business-primary);\n}\n.dsh-flow-step-num {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  width: 18px;\n  height: 18px;\n  border-radius: 999px;\n  font-size: 11px;\n  font-weight: 600;\n  background: var(--dsw-alias-interactive-bg-hover);\n  color: var(--dsw-alias-label-secondary);\n}\n.dsh-flow-step[data-active=\"true\"] .dsh-flow-step-num,\n.dsh-flow-step[data-done=\"true\"] .dsh-flow-step-num {\n  background: var(--dsw-alias-state-business-primary);\n  color: #ffffff;\n}\n.dsh-flow-step-arrow {\n  color: var(--dsw-alias-label-dimmed);\n  font-size: 11px;\n}\n\n/* 已连接「下一步」行动条 */\n.dsh-flow-nextbar {\n  display: flex;\n  flex-direction: column;\n  gap: 10px;\n  padding: 13px 16px;\n  border-top: 1px solid var(--dsw-alias-border-l);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n.dsh-flow-next-list {\n  display: flex;\n  flex-direction: column;\n  gap: 6px;\n}\n.dsh-flow-next-item {\n  display: flex;\n  align-items: baseline;\n  gap: 8px;\n  font-size: 12.5px;\n  color: var(--dsw-alias-label-secondary);\n  line-height: 18px;\n}\n.dsh-flow-next-item code {\n  padding: 1px 5px;\n  border-radius: 5px;\n  background: var(--dsw-alias-bg-module-platform);\n  color: var(--dsw-alias-label-primary);\n  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;\n  font-size: 12px;\n}\n.dsh-flow-mode-summary {\n  padding: 0 4px;\n  font-size: 12px;\n  color: var(--dsw-alias-label-tertiary);\n}\n"
 
     /* === src/client/constants.js === */
     /**
@@ -844,15 +844,21 @@ window.__ModuleLoader__.load({
         h('div', { className: wideControl ? 'dsh-flow-row-ctrl dsh-flow-row-ctrl-wide' : 'dsh-flow-row-ctrl' }, children))
     }
 
-    /** Apple 风格折叠高级分区（默认收起，带右侧摘要标签）。 */
-    function DisclosureGroup({ title, summary, defaultOpen = false, children }) {
-      const [open, setOpen] = useState(defaultOpen)
+    /** Apple 风格折叠高级分区（默认收起，带右侧摘要标签；支持受控 open + onToggle）。 */
+    function DisclosureGroup({ title, summary, defaultOpen = false, open: controlledOpen, onToggle, children }) {
+      const [innerOpen, setInnerOpen] = useState(defaultOpen)
+      const open = typeof controlledOpen === 'boolean' ? controlledOpen : innerOpen
+      const toggle = () => {
+        const next = !open
+        if (typeof onToggle === 'function') onToggle(next)
+        if (typeof controlledOpen !== 'boolean') setInnerOpen(next)
+      }
       return h('div', { className: 'dsh-flow-groupcard' },
         h('button', {
           type: 'button',
           className: 'dsh-flow-disclosure-btn',
           'aria-expanded': open ? 'true' : 'false',
-          onClick: () => { setOpen(v => !v) },
+          onClick: toggle,
         },
         h('span', null, title),
         h('span', { className: 'dsh-flow-disclosure-right' },
@@ -942,21 +948,43 @@ window.__ModuleLoader__.load({
     function TextField({ value, onCommit, onDraftChange, disabled, multiline, placeholder, rows, type, ignoreEmptyCommit }) {
       const [draft, setDraft] = useState(value ?? '')
       const committed = useRef(value ?? '')
+      const draftRef = useRef(draft)
+      const onCommitRef = useRef(onCommit)
+      const ignoreEmptyRef = useRef(ignoreEmptyCommit)
+      draftRef.current = draft
+      onCommitRef.current = onCommit
+      ignoreEmptyRef.current = ignoreEmptyCommit
 
       useEffect(() => {
         const incoming = value ?? ''
         if (incoming !== committed.current) {
           committed.current = incoming
           setDraft(incoming)
+          draftRef.current = incoming
         }
       }, [value])
 
-      const commit = () => {
-        if (draft === committed.current) return
-        if (ignoreEmptyCommit && String(draft).trim() === '') return
-        committed.current = draft
-        if (typeof onCommit === 'function') onCommit(draft)
+      const commitValue = (raw, allowRollback = true) => {
+        if (raw === committed.current) return
+        if (ignoreEmptyRef.current && String(raw).trim() === '') return
+        if (typeof onCommitRef.current === 'function') {
+          // 若调用方返回 false（例如非法数字边界），自动回滚输入框草稿（P2-3 修复）。
+          const ok = onCommitRef.current(raw)
+          if (ok === false) {
+            if (allowRollback) {
+              setDraft(committed.current)
+              draftRef.current = committed.current
+            }
+            return
+          }
+        }
+        committed.current = raw
       }
+
+      // P2-3 修复：切换 Tab 卸载组件时若存在未失焦的有效改动，自动提交避免草稿静默丢失。
+      useEffect(() => () => {
+        commitValue(draftRef.current, false)
+      }, [])
 
       const shared = {
         value: draft,
@@ -965,9 +993,10 @@ window.__ModuleLoader__.load({
         onChange: (event) => {
           const next = event.target.value
           setDraft(next)
+          draftRef.current = next
           if (typeof onDraftChange === 'function') onDraftChange(next)
         },
-        onBlur: commit,
+        onBlur: () => { commitValue(draftRef.current, true) },
         onKeyDown: (event) => {
           if (!multiline && event.key === 'Enter') event.currentTarget.blur()
         },
@@ -1217,11 +1246,14 @@ window.__ModuleLoader__.load({
       const [libTab, setLibTab] = useState('base')
       const [rosterOpen, setRosterOpen] = useState(false)
       const [rosterDraft, setRosterDraft] = useState('')
+      const [rosterDirty, setRosterDirty] = useState(false)
       const [baseDraft, setBaseDraft] = useState('')
       const [expandedSets, setExpandedSets] = useState(() => new Set())
       const [expandedAgents, setExpandedAgents] = useState({})
       const [agentDrafts, setAgentDrafts] = useState({})
       const [dirtyAgents, setDirtyAgents] = useState(() => new Set())
+      const dirtyAgentsRef = useRef(dirtyAgents)
+      dirtyAgentsRef.current = dirtyAgents
       const [creating, setCreating] = useState(false)
       const [newAgentId, setNewAgentId] = useState('')
       const [newAgentSummary, setNewAgentSummary] = useState('')
@@ -1239,20 +1271,26 @@ window.__ModuleLoader__.load({
         setBaseDraft(fromFile !== '' ? fromFile : (promptData?.base?.content ?? ''))
       }, [value?.baseRules, promptData])
 
+      // P2-3 修复：拆分为两个独立 effect，编辑子代理时绝不再冲掉未保存的花名册草稿。
+      useEffect(() => {
+        if (promptData === null || rosterDirty) return
+        setRosterDraft(promptData.roster?.content ?? '')
+      }, [promptData?.roster?.content, rosterDirty])
+
       useEffect(() => {
         if (promptData === null) return
-        setRosterDraft(promptData.roster?.content ?? '')
         const list = Array.isArray(promptData.subagents) ? promptData.subagents : []
+        const dirty = dirtyAgentsRef.current
         setAgentDrafts((prev) => {
           const next = {}
           for (const item of list) {
-            next[item.id] = dirtyAgents.has(item.id) && typeof prev[item.id] === 'string'
+            next[item.id] = dirty.has(item.id) && typeof prev[item.id] === 'string'
               ? prev[item.id]
               : (item.content ?? '')
           }
           return next
         })
-      }, [promptData, dirtyAgents])
+      }, [promptData])
 
       useEffect(() => {
         if (confirmDeleteId === '') return undefined
@@ -1327,6 +1365,7 @@ window.__ModuleLoader__.load({
                 const payload = await apiCall('POST', '/api/dsh-flow/prompts/update')
                 const result = payload.result ?? {}
                 setDirtyAgents(new Set())
+                setRosterDirty(false)
                 setFeedback({
                   kind: result.ok === false ? 'error' : 'ok',
                   text: t('lib.updateDone')
@@ -1614,7 +1653,8 @@ window.__ModuleLoader__.load({
         h(DisclosureGroup, {
           title: t('lib.rosterTitle'),
           summary: promptData?.roster?.hasCustom === true ? t('common.custom') : t('common.builtin'),
-          defaultOpen: rosterOpen,
+          open: rosterOpen,
+          onToggle: setRosterOpen,
         },
         h('div', { className: 'dsh-flow-row-block' },
           h(TextField, {
@@ -1622,8 +1662,8 @@ window.__ModuleLoader__.load({
             multiline: true,
             rows: 10,
             disabled,
-            onDraftChange: setRosterDraft,
-            onCommit: setRosterDraft,
+            onDraftChange: (next) => { setRosterDirty(true); setRosterDraft(next) },
+            onCommit: (next) => { setRosterDraft(next) },
           }),
           h('div', { className: 'dsh-flow-row', style: { justifyContent: 'flex-end' } },
             h('button', {
@@ -1633,6 +1673,7 @@ window.__ModuleLoader__.load({
               onClick: () => {
                 void runBusy('roster', async () => {
                   await apiCall('DELETE', '/api/dsh-flow/roster')
+                  setRosterDirty(false)
                   setFeedback({ kind: 'ok', text: t('lib.reset') })
                   refreshPrompts()
                 })
@@ -1645,6 +1686,7 @@ window.__ModuleLoader__.load({
               onClick: () => {
                 void runBusy('roster', async () => {
                   await apiCall('PUT', '/api/dsh-flow/roster', { content: rosterDraft })
+                  setRosterDirty(false)
                   setFeedback({ kind: 'ok', text: t('lib.saved') })
                   setRosterOpen(true)
                   refreshPrompts()
@@ -1687,6 +1729,7 @@ window.__ModuleLoader__.load({
      * @module dsh-flow/client/tabs/workflow-tab
      */
     function WorkflowTab({ value, catalog, disabled, setField, t }) {
+      const [fieldErr, setFieldErr] = useState('')
       const spec = value?.spec && typeof value.spec === 'object' ? value.spec : {}
       const behavior = value?.behavior && typeof value.behavior === 'object' ? value.behavior : {}
       const docsCfg = value?.docs && typeof value.docs === 'object' ? value.docs : {}
@@ -1696,6 +1739,22 @@ window.__ModuleLoader__.load({
 
       const circuitOn = circuitCfg.enabled !== false
 
+      const commitInt = (raw, { min, max, label, path }) => {
+        const clean = String(raw ?? '').trim()
+        if (!/^\d+$/.test(clean)) {
+          setFieldErr(`${label} 必须为 ${min}–${max} 的整数，已恢复原值`)
+          return false
+        }
+        const parsed = Number(clean)
+        if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) {
+          setFieldErr(`${label} 需在 ${min}–${max} 范围内，已恢复原值`)
+          return false
+        }
+        setFieldErr('')
+        setField(path, parsed)
+        return true
+      }
+
       const strategyOptions = [
         { value: 'im-first', label: t('strategy.imFirst') },
         { value: 'email-first', label: t('strategy.emailFirst') },
@@ -1704,6 +1763,7 @@ window.__ModuleLoader__.load({
       ]
 
       return h('div', { className: 'dsh-flow-stack', role: 'tabpanel' },
+        fieldErr ? h('div', { className: 'dsh-flow-toast dsh-flow-toast-err', role: 'alert' }, fieldErr) : null,
         /* ---- 分组 1：开发流程 ---- */
         h(SectionGroup, { title: t('wf.secFlow') },
           h(SettingRow, { title: t('wf.level') },
@@ -1824,19 +1884,13 @@ window.__ModuleLoader__.load({
             h(TextField, {
               value: String(typeof spec.maxChars === 'number' ? spec.maxChars : 600),
               disabled,
-              onCommit: (next) => {
-                const parsed = Number.parseInt(next, 10)
-                if (Number.isFinite(parsed) && parsed >= 80) setField(['spec', 'maxChars'], parsed)
-              },
+              onCommit: next => commitInt(next, { min: 80, max: 4000, label: t('wf.specMaxChars'), path: ['spec', 'maxChars'] }),
             })),
           h(SettingRow, { title: t('wf.timeout'), wideControl: true },
             h(TextField, {
               value: String(typeof gateCfg.timeoutSeconds === 'number' ? gateCfg.timeoutSeconds : 1800),
               disabled,
-              onCommit: (next) => {
-                const parsed = Number.parseInt(next, 10)
-                if (Number.isFinite(parsed) && parsed >= 0) setField(['gate', 'timeoutSeconds'], parsed)
-              },
+              onCommit: next => commitInt(next, { min: 0, max: 86400, label: t('wf.timeout'), path: ['gate', 'timeoutSeconds'] }),
             })),
           h(SettingRow, { title: t('wf.escalate'), wideControl: true },
             h(CustomSelect, {
@@ -1864,10 +1918,7 @@ window.__ModuleLoader__.load({
             h(TextField, {
               value: String(circuitCfg.idleSeconds ?? 120),
               disabled,
-              onCommit: (next) => {
-                const parsed = Number.parseInt(next, 10)
-                if (Number.isFinite(parsed) && parsed >= 0) setField(['circuit', 'idleSeconds'], parsed)
-              },
+              onCommit: next => commitInt(next, { min: 0, max: 86400, label: t('wf.idleSeconds'), path: ['circuit', 'idleSeconds'] }),
             })),
           h(SettingRow, { title: t('wf.debugLog') },
             h(ToggleSwitch, {
@@ -1912,16 +1963,26 @@ window.__ModuleLoader__.load({
       const [onboard, setOnboard] = useState(null)
       const [manualMode, setManualMode] = useState(false)
       const [botNameDraft, setBotNameDraft] = useState(() => (typeof feishuCfg.botName === 'string' && feishuCfg.botName !== '' ? feishuCfg.botName : 'Flow 指挥官'))
+      const [appIdDraft, setAppIdDraft] = useState(() => (typeof feishuCfg.appId === 'string' ? feishuCfg.appId : ''))
+      const [appSecretDraft, setAppSecretDraft] = useState('')
       const [busy, setBusy] = useState('')
       const [feedback, setFeedback] = useState(null)
       const [testReport, setTestReport] = useState(null)
       const fileInputRef = useRef(null)
+      const allowedIdsRef = useRef(feishuCfg.allowedOpenIds)
+      allowedIdsRef.current = feishuCfg.allowedOpenIds
+      const appSecretCfgRef = useRef(feishuCfg.appSecret)
+      appSecretCfgRef.current = feishuCfg.appSecret
 
       useEffect(() => {
         if (typeof feishuCfg.botName === 'string' && feishuCfg.botName !== '') {
           setBotNameDraft(feishuCfg.botName)
         }
       }, [feishuCfg.botName])
+
+      useEffect(() => {
+        if (typeof feishuCfg.appId === 'string') setAppIdDraft(feishuCfg.appId)
+      }, [feishuCfg.appId])
 
       const refreshFeishuStatus = useCallback(() => {
         apiCall('GET', '/api/dsh-flow/feishu/status')
@@ -1944,39 +2005,112 @@ window.__ModuleLoader__.load({
           .catch(() => {})
       }, [refreshFeishuStatus])
 
+      // 重启后后端 autoStart() 需要 1–3 秒完成凭证校验与 WS 握手；
+      // 未进入 connected 时短轮询几次，并在切回标签页时自动同步，避免页面卡死在「未连接 / 连接中」。
+      useEffect(() => {
+        const state = feishuStatus?.state ?? ''
+        const hasConfiguredApp = Boolean(String(feishuCfg.appId || feishuStatus?.appId || '').trim())
+        const shouldRetry = state === '' || state === 'connecting' || (feishuCfg.enabled === true && hasConfiguredApp && state !== 'connected')
+        if (!shouldRetry) return undefined
+        let alive = true
+        let count = 0
+        let timer = null
+        const tick = () => {
+          if (!alive || count >= 8) return
+          count += 1
+          apiCall('GET', '/api/dsh-flow/feishu/status')
+            .then((res) => {
+              if (!alive) return
+              if (res?.data) {
+                setFeishuStatus(res.data)
+                onFeishuState?.(res.data.state ?? 'disconnected')
+                if (res.data.onboarding) setOnboard(res.data.onboarding)
+                if (res.data.state === 'connected') return
+              }
+              if (count < 8) timer = setTimeout(tick, 2000)
+            })
+            .catch(() => {
+              if (alive && count < 8) timer = setTimeout(tick, 2000)
+            })
+        }
+        timer = setTimeout(tick, 1500)
+        return () => {
+          alive = false
+          if (timer !== null) clearTimeout(timer)
+        }
+      }, [feishuStatus?.state, feishuStatus?.appId, feishuCfg.appId, feishuCfg.enabled, onFeishuState])
+
+      useEffect(() => {
+        if (typeof window === 'undefined') return undefined
+        const onFocus = () => { refreshFeishuStatus() }
+        window.addEventListener('focus', onFocus)
+        return () => { window.removeEventListener('focus', onFocus) }
+      }, [refreshFeishuStatus])
+
       const isOnboardingActive = onboard && (
         onboard.phase === 'starting' || onboard.phase === 'qr_ready' || onboard.phase === 'scanned'
       )
 
       useEffect(() => {
         if (!isOnboardingActive) return undefined
-        const timer = setInterval(() => {
+        let alive = true
+        let timer = null
+        let failCount = 0
+
+        // P2-3 修复：改为带卸载守卫的递归 setTimeout，连续失败 3 次给出明确提示并停止轮询。
+        const poll = () => {
           apiCall('GET', '/api/dsh-flow/feishu/onboard/status')
             .then((res) => {
+              if (!alive) return
+              failCount = 0
               const data = res?.data
-              if (!data) return
+              if (!data) {
+                timer = setTimeout(poll, 2000)
+                return
+              }
               setOnboard(data)
               if (data.phase === 'completed') {
                 if (data.appId) setField(['feishu', 'appId'], data.appId)
                 if (data.domain === 'lark' || data.domain === 'feishu') setField(['feishu', 'domain'], data.domain)
-                if (feishuCfg.appSecret) setField(['feishu', 'appSecret'], '')
+                if (appSecretCfgRef.current) setField(['feishu', 'appSecret'], '')
                 setField(['feishu', 'enabled'], true)
                 if (data.ownerOpenId) {
-                  const prev = Array.isArray(feishuCfg.allowedOpenIds) ? feishuCfg.allowedOpenIds : []
+                  const prev = Array.isArray(allowedIdsRef.current) ? allowedIdsRef.current : []
                   if (!prev.includes(data.ownerOpenId)) setField(['feishu', 'allowedOpenIds'], [...prev, data.ownerOpenId])
                 }
                 setFeedback({ kind: 'ok', text: `已连接 ${data.appId}` })
                 refreshFeishuStatus()
-              } else if (data.phase === 'failed') {
+                return
+              }
+              if (data.phase === 'failed') {
                 setFeedback({ kind: 'error', text: data.error || data.statusText || '扫码建应用失败' })
+                return
+              }
+              if (data.phase === 'starting' || data.phase === 'qr_ready' || data.phase === 'scanned') {
+                timer = setTimeout(poll, 2000)
               }
             })
-            .catch(() => {})
-        }, 2000)
-        return () => { clearInterval(timer) }
-      }, [isOnboardingActive, feishuCfg.allowedOpenIds, setField, refreshFeishuStatus])
+            .catch((err) => {
+              if (!alive) return
+              failCount += 1
+              if (failCount >= 3) {
+                setOnboard(prev => (prev ? { ...prev, phase: 'failed' } : null))
+                setFeedback({ kind: 'error', text: `扫码状态轮询中断：${err instanceof Error ? err.message : String(err)}` })
+                return
+              }
+              timer = setTimeout(poll, 2000)
+            })
+        }
+
+        timer = setTimeout(poll, 2000)
+        return () => {
+          alive = false
+          if (timer !== null) clearTimeout(timer)
+        }
+      }, [isOnboardingActive, setField, refreshFeishuStatus])
 
       const runAction = async (key, fn) => {
+        if (busy !== '') return
         setBusy(key)
         setFeedback(null)
         try {
@@ -2244,20 +2378,22 @@ window.__ModuleLoader__.load({
               h('div', { className: 'dsh-flow-row-meta' }, h('span', { className: 'dsh-flow-row-title' }, t('feishu.appId'))),
               h('div', { className: 'dsh-flow-row-ctrl dsh-flow-row-ctrl-wide' },
                 h(TextField, {
-                  value: typeof feishuCfg.appId === 'string' ? feishuCfg.appId : '',
+                  value: appIdDraft,
                   disabled,
                   placeholder: 'cli_xxxxxxxxxx',
-                  onCommit: next => { setField(['feishu', 'appId'], next.trim()) },
+                  onDraftChange: setAppIdDraft,
+                  onCommit: next => { const clean = next.trim(); setAppIdDraft(clean); setField(['feishu', 'appId'], clean) },
                 }))),
             h('div', { className: 'dsh-flow-setting-row' },
               h('div', { className: 'dsh-flow-row-meta' }, h('span', { className: 'dsh-flow-row-title' }, t('feishu.appSecret'))),
               h('div', { className: 'dsh-flow-row-ctrl dsh-flow-row-ctrl-wide' },
                 h(TextField, {
-                  value: '',
+                  value: appSecretDraft,
                   type: 'password',
                   ignoreEmptyCommit: true,
                   disabled,
                   placeholder: t('feishu.appSecretPlaceholder'),
+                  onDraftChange: setAppSecretDraft,
                   onCommit: next => { setField(['feishu', 'appSecret'], next.trim()) },
                 }))),
             h('div', { className: 'dsh-flow-setting-row' },
@@ -2275,11 +2411,12 @@ window.__ModuleLoader__.load({
                 h('button', {
                   type: 'button',
                   className: 'dsh-flow-btn',
-                  disabled: busy === 'verify',
+                  disabled: busy !== '',
                   onClick: () => {
                     void runAction('verify', async () => {
                       const res = await apiCall('POST', '/api/dsh-flow/feishu/verify', {
-                        appId: feishuCfg.appId || '',
+                        appId: appIdDraft.trim() || feishuCfg.appId || '',
+                        ...(appSecretDraft.trim() !== '' ? { appSecret: appSecretDraft.trim() } : {}),
                         domain: feishuCfg.domain === 'lark' ? 'lark' : 'feishu',
                       })
                       setFeedback({ kind: 'ok', text: `凭证有效：${res.botName || '已就绪'}` })
@@ -2290,14 +2427,19 @@ window.__ModuleLoader__.load({
                 h('button', {
                   type: 'button',
                   className: 'dsh-flow-btn dsh-flow-btn-primary',
-                  disabled: disabled || busy === 'connect',
+                  disabled: disabled || busy !== '',
                   onClick: () => {
                     void runAction('connect', async () => {
+                      const effId = appIdDraft.trim() || feishuCfg.appId || ''
+                      const effSecret = appSecretDraft.trim()
+                      if (effId !== '' && effId !== feishuCfg.appId) setField(['feishu', 'appId'], effId)
                       setField(['feishu', 'enabled'], true)
                       const res = await apiCall('POST', '/api/dsh-flow/feishu/connect', {
-                        appId: feishuCfg.appId || '',
+                        appId: effId,
+                        ...(effSecret !== '' ? { appSecret: effSecret } : {}),
                         domain: feishuCfg.domain === 'lark' ? 'lark' : 'feishu',
                       })
+                      setAppSecretDraft('')
                       setFeedback({ kind: 'ok', text: `已连接 ${res.appId}` })
                       refreshFeishuStatus()
                     })
@@ -2638,8 +2780,18 @@ window.__ModuleLoader__.load({
                   value: String(mailCfg.port ?? 465),
                   disabled,
                   onCommit: (next) => {
-                    const parsed = Number.parseInt(next, 10)
-                    if (Number.isFinite(parsed) && parsed > 0 && parsed <= 65535) setField(['email', 'port'], parsed)
+                    const clean = String(next ?? '').trim()
+                    if (!/^\d+$/.test(clean)) {
+                      setFeedback({ kind: 'error', text: 'SMTP 端口必须为 1–65535 的整数' })
+                      return false
+                    }
+                    const parsed = Number(clean)
+                    if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > 65535) {
+                      setFeedback({ kind: 'error', text: 'SMTP 端口超出 1–65535 范围' })
+                      return false
+                    }
+                    setField(['email', 'port'], parsed)
+                    return true
                   },
                 })),
               h(SettingRow, { title: t('notify.security') },
@@ -2796,10 +2948,26 @@ window.__ModuleLoader__.load({
 
       useEffect(() => {
         let alive = true
-        apiCall('GET', '/api/dsh-flow/feishu/status')
-          .then((res) => { if (alive && res?.data?.state) setFeishuState(res.data.state) })
-          .catch(() => {})
-        return () => { alive = false }
+        let retryTimer = null
+        const pull = (canRetry) => {
+          apiCall('GET', '/api/dsh-flow/feishu/status')
+            .then((res) => {
+              if (!alive) return
+              const st = res?.data?.state
+              if (st) setFeishuState(st)
+              if (canRetry && st !== 'connected') {
+                retryTimer = setTimeout(() => pull(false), 2500)
+              }
+            })
+            .catch(() => {
+              if (alive && canRetry) retryTimer = setTimeout(() => pull(false), 2500)
+            })
+        }
+        pull(true)
+        return () => {
+          alive = false
+          if (retryTimer !== null) clearTimeout(retryTimer)
+        }
       }, [])
 
       useEffect(() => {
@@ -2846,6 +3014,8 @@ window.__ModuleLoader__.load({
         return () => { alive = false }
       }, [appCtx])
 
+      const seqByKeyRef = useRef(new Map())
+
       const dropOverride = useCallback((key) => {
         setOverrides((prev) => {
           if (!(key in prev)) return prev
@@ -2855,10 +3025,10 @@ window.__ModuleLoader__.load({
         })
       }, [])
 
-      const mutate = useCallback(async (ops, key) => {
+      const mutate = useCallback(async (ops, key, seq) => {
         if (!form || typeof form.mutate !== 'function') {
           setError(t('error.noForm'))
-          if (key !== undefined) dropOverride(key)
+          if (key !== undefined && (seq === undefined || seqByKeyRef.current.get(key) === seq)) dropOverride(key)
           return
         }
         setError(null)
@@ -2868,20 +3038,27 @@ window.__ModuleLoader__.load({
         } catch (cause) {
           setError(cause instanceof Error ? cause.message : String(cause))
         } finally {
-          if (key !== undefined) dropOverride(key)
+          // P2-3 修复：仅当本次请求仍为该 key 的最新请求时才清理乐观覆盖值，防连点回弹闪烁。
+          if (key !== undefined && (seq === undefined || seqByKeyRef.current.get(key) === seq)) {
+            dropOverride(key)
+          }
         }
       }, [form, t, dropOverride])
 
       const setField = useCallback((path, next) => {
         const key = pathKey(path)
+        const seq = (seqByKeyRef.current.get(key) ?? 0) + 1
+        seqByKeyRef.current.set(key, seq)
         setOverrides(prev => ({ ...prev, [key]: next }))
-        void mutate([{ op: 'set', path, value: next }], key)
+        void mutate([{ op: 'set', path, value: next }], key, seq)
       }, [mutate])
 
       const unsetField = useCallback((path) => {
         const key = pathKey(path)
+        const seq = (seqByKeyRef.current.get(key) ?? 0) + 1
+        seqByKeyRef.current.set(key, seq)
         dropOverride(key)
-        void mutate([{ op: 'unset', path }], key)
+        void mutate([{ op: 'unset', path }], key, seq)
       }, [mutate, dropOverride])
 
       if (!form || snapshot === null) {

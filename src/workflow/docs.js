@@ -138,7 +138,9 @@ export function ensureDocs({ config, cwd, ids, overwrite = false }) {
     }
     try {
       writeAtomic(target.abs, withMeta(id, templateOf(id)))
-      docCheckCache.delete(`${target.abs}|${id}`)
+      for (const key of [...docCheckCache.keys()]) {
+        if (key.startsWith(`${target.abs}|`)) docCheckCache.delete(key)
+      }
       created.push(id)
     } catch (error) {
       errors.push({ id, reason: error instanceof Error ? error.message : String(error) })

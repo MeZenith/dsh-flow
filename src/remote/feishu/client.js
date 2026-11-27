@@ -16,6 +16,37 @@ import { sendFeishuFiles } from './files.js'
 const MAX_SEEN_EVENTS = 500
 const MAX_TRACKED_CARDS = 200
 
+/** 根据飞书接收者 ID 前缀推断默认 `receive_id_type`（兼容把 `ou_...` 误填进 chatId 的情况）。 */
+export function inferReceiveIdType(target, fallback = 'chat_id') {
+  const clean = String(target ?? '').trim()
+  if (clean.startsWith('ou_')) return 'open_id'
+  if (clean.startsWith('oc_')) return 'chat_id'
+  if (clean.startsWith('on_')) return 'union_id'
+  if (clean.includes('@')) return 'email'
+  return fallback
+}
+
+/** 从飞书 SDK / Axios 异常中提取真实错误码与原因，避免只剩裸 `Request failed with status code 400`。 */
+export function formatSdkError(error) {
+  const data = error?.response?.data
+  if (data && typeof data === 'object') {
+    const code = data.code ?? data.error?.code
+    const msg = String(data.msg ?? data.message ?? data.error?.message ?? '').trim()
+    const violations = Array.isArray(data.error?.field_violations)
+      ? data.error.field_violations.map(v => `${v.field}:${v.description}`).filter(Boolean).join('; ')
+      : ''
+    const parts = []
+    if (code !== undefined && code !== null && code !== '') parts.push(`code=${code}`)
+    if (msg !== '') parts.push(msg)
+    if (violations !== '') parts.push(`(${violations})`)
+    if (parts.length > 0) return parts.join(' ')
+  }
+  if (typeof data === 'string' && data.trim() !== '') {
+    return `${error?.message || 'HTTP Error'}: ${data.trim().slice(0, 200)}`
+  }
+  return error instanceof Error ? error.message : String(error)
+}
+
 /**
  * 创建飞书长连接客户端。
  *
@@ -57,7 +88,10 @@ export function createFeishuClient({ onMessage, onCardAction, onDisconnected, lo
   function effectiveState() {
     if (wsClient !== null && typeof wsClient.getConnectionStatus === 'function') {
       try {
-        const raw = String(wsClient.getConnectionStatus() ?? '').toLowerCase()
+        const statusObj = wsClient.getConnectionStatus()
+        const raw = String(
+          statusObj !== null && typeof statusObj === 'object' ? (statusObj.state ?? '') : (statusObj ?? ''),
+        ).toLowerCase()
         if (raw === 'connected' || raw === 'open' || raw === 'ready') return 'connected'
         if (raw === 'connecting' || raw === 'reconnecting') return 'connecting'
         if (raw === 'error' || raw === 'failed') return 'error'
@@ -237,9 +271,10 @@ export function createFeishuClient({ onMessage, onCardAction, onDisconnected, lo
     await closeWsInstance(prevWs)
   }
 
-  /** 发送文本消息到 chat_id。 */
-  async function sendText(chatId, text, { replyToMessageId } = {}) {
+  /** 发送文本消息到 chat_id / open_id。 */
+  async function sendText(chatId, text, { replyToMessageId, receiveIdType } = {}) {
     if (apiClient === null) return { ok: false, reason: '飞书未连接' }
+    const resolvedType = receiveIdType ?? inferReceiveIdType(chatId, 'chat_id')
     const content = JSON.stringify({ text: String(text ?? '') })
     try {
       const res = replyToMessageId
@@ -248,21 +283,22 @@ export function createFeishuClient({ onMessage, onCardAction, onDisconnected, lo
           data: { msg_type: 'text', content },
         })
         : await apiClient.im.v1.message.create({
-          params: { receive_id_type: 'chat_id' },
+          params: { receive_id_type: resolvedType },
           data: { receive_id: chatId, msg_type: 'text', content },
         })
       if (res?.code !== undefined && res.code !== 0) {
-        return { ok: false, reason: `code=${res.code} ${res.msg ?? ''}` }
+        return { ok: false, reason: `code=${res.code} ${res.msg ?? ''}`.trim() }
       }
       return { ok: true, messageId: res?.data?.message_id ?? res?.message_id ?? '' }
     } catch (error) {
-      return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+      return { ok: false, reason: formatSdkError(error) }
     }
   }
 
-  /** 发送互动卡片到 chat_id（支持直接回复某条消息）。 */
-  async function sendCard(chatId, card, { replyToMessageId, receiveIdType = 'chat_id' } = {}) {
+  /** 发送互动卡片到 chat_id / open_id（支持直接回复某条消息）。 */
+  async function sendCard(chatId, card, { replyToMessageId, receiveIdType } = {}) {
     if (apiClient === null) return { ok: false, reason: '飞书未连接' }
+    const resolvedType = receiveIdType ?? inferReceiveIdType(chatId, 'chat_id')
     const content = JSON.stringify(card)
     try {
       const res = replyToMessageId
@@ -271,15 +307,15 @@ export function createFeishuClient({ onMessage, onCardAction, onDisconnected, lo
           data: { msg_type: 'interactive', content },
         })
         : await apiClient.im.v1.message.create({
-          params: { receive_id_type: receiveIdType },
+          params: { receive_id_type: resolvedType },
           data: { receive_id: chatId, msg_type: 'interactive', content },
         })
       if (res?.code !== undefined && res.code !== 0) {
-        return { ok: false, reason: `code=${res.code} ${res.msg ?? ''}` }
+        return { ok: false, reason: `code=${res.code} ${res.msg ?? ''}`.trim() }
       }
       return { ok: true, messageId: res?.data?.message_id ?? res?.message_id ?? '' }
     } catch (error) {
-      return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+      return { ok: false, reason: formatSdkError(error) }
     }
   }
 
@@ -294,19 +330,20 @@ export function createFeishuClient({ onMessage, onCardAction, onDisconnected, lo
         data: { content: JSON.stringify(card) },
       })
       if (res?.code !== undefined && res.code !== 0) {
-        return { ok: false, reason: `code=${res.code} ${res.msg ?? ''}` }
+        return { ok: false, reason: `code=${res.code} ${res.msg ?? ''}`.trim() }
       }
       return { ok: true }
     } catch (error) {
-      return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+      return { ok: false, reason: formatSdkError(error) }
     }
   }
 
   /** 创建并发送飞书 CardKit 原生流式卡片（无权限或 SDK 不支持时返回 ok: false 由上层平滑降级）。 */
-  async function createStreamingCard(chatId, card, { replyToMessageId, receiveIdType = 'chat_id' } = {}) {
+  async function createStreamingCard(chatId, card, { replyToMessageId, receiveIdType } = {}) {
     if (cardkitDenied || apiClient === null || typeof apiClient?.cardkit?.v1?.card?.create !== 'function') {
       return { ok: false, reason: cardkitDenied ? 'cardkit-permission-denied' : 'cardkit-unavailable' }
     }
+    const resolvedType = receiveIdType ?? inferReceiveIdType(chatId, 'chat_id')
     try {
       const created = await apiClient.cardkit.v1.card.create({
         data: {
@@ -319,7 +356,7 @@ export function createFeishuClient({ onMessage, onCardAction, onDisconnected, lo
           cardkitDenied = true
           diag(`feishu cardkit permission missing (code=${created.code}); fallback to patchCard for current session`)
         }
-        return { ok: false, reason: `code=${created.code} ${created.msg ?? ''}` }
+        return { ok: false, reason: `code=${created.code} ${created.msg ?? ''}`.trim() }
       }
       const cardId = String(created?.data?.card_id ?? '').trim()
       if (cardId === '') return { ok: false, reason: 'missing-card-id' }
@@ -331,11 +368,11 @@ export function createFeishuClient({ onMessage, onCardAction, onDisconnected, lo
           data: { msg_type: 'interactive', content },
         })
         : await apiClient.im.v1.message.create({
-          params: { receive_id_type: receiveIdType },
+          params: { receive_id_type: resolvedType },
           data: { receive_id: chatId, msg_type: 'interactive', content },
         })
       if (sent?.code !== undefined && sent.code !== 0) {
-        return { ok: false, reason: `code=${sent.code} ${sent.msg ?? ''}` }
+        return { ok: false, reason: `code=${sent.code} ${sent.msg ?? ''}`.trim() }
       }
       return {
         ok: true,
@@ -343,7 +380,7 @@ export function createFeishuClient({ onMessage, onCardAction, onDisconnected, lo
         messageId: String(sent?.data?.message_id ?? sent?.message_id ?? ''),
       }
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error)
+      const msg = formatSdkError(error)
       if (/99991672|99991640/.test(msg)) {
         cardkitDenied = true
         diag(`feishu cardkit permission missing (${msg}); fallback to patchCard for current session`)
@@ -367,11 +404,11 @@ export function createFeishuClient({ onMessage, onCardAction, onDisconnected, lo
         },
       })
       if (res?.code !== undefined && res.code !== 0) {
-        return { ok: false, reason: `code=${res.code} ${res.msg ?? ''}` }
+        return { ok: false, reason: `code=${res.code} ${res.msg ?? ''}`.trim() }
       }
       return { ok: true }
     } catch (error) {
-      return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+      return { ok: false, reason: formatSdkError(error) }
     }
   }
 
@@ -403,7 +440,7 @@ export function createFeishuClient({ onMessage, onCardAction, onDisconnected, lo
       }
       return { ok: false, reason: 'cardkit-finish-failed' }
     } catch (error) {
-      return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+      return { ok: false, reason: formatSdkError(error) }
     }
   }
 

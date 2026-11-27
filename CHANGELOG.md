@@ -8,6 +8,45 @@
 
 暂无。
 
+## [0.6.1] - 2026-11-27
+
+全栈审计清零 + 真机联调修复版本：一口气修清 21 项审计缺陷（6 P0 + 11 P1 + 4 P2）与 4 项飞书真机实测问题，显著加固远程安全边界、飞书流式回复与工作区建会话体验，自动化测试增至 40 项。
+
+### Security
+
+- **飞书白名单严格 Fail-Closed（P0-6）**：`feishu.allowedOpenIds` 为空或仅空白时默认拒绝一切远程指令与卡片回调（仅放行 `/id` 与 `/whoami` 自助查询 `open_id`），杜绝零配置裸奔风险。
+- **工具审批卡片脱敏与围栏防逃逸（P0-4）**：对发往飞书的审批参数/说明自动脱敏常见 API Key、Token、密码、私钥与连接串凭据；代码块使用动态长度反引号围栏包裹防止内容冲破卡片结构；补齐飞书断连释放审批、5 分钟兜底超时、只读 `request.signal` 保护与桌面取消态回写。
+- **提示词在线更新流式防爆内存（P1-11）**：`prompts/updater.js` 改用 `response.body.getReader()` 按字节流硬限制单文件 512KB 上限，并在更新成功后原子落盘本地 `manifest.json`。
+
+### Fixed
+
+- **DSH 宿主契约对齐（P0-1 / P1-4 / 真机修复）**：
+  - 修复 `syncModeCommand` 传参签名与真实 DSH `commands.execute(agent, "/flow <mode>", [], signal)` 不匹配导致飞书 `/mode` 静默失灵的问题；
+  - 统一 `UserMessage.source` 为 `{ kind: 'user' }` 对象、熔断重试改用 `agent.whenIdle()` 等待空闲，工作区枚举接入真实 `workspaceRegistry`；
+  - 修复飞书离线工作区新建会话落入「未分组」的问题：`createSessionForCwd` 自动向 `workspaceRegistry` 解析/注册 `workspaceId` 并仅传 `{ workspaceId }` 调用 `sessionController.create`，使新对话准确归入目标工作区。
+- **飞书流式回复引擎全面加固（P0-3 / P1-1 / P1-2 / 真机修复）**：
+  - 修复真实 DSH 空闲会话下 `agent.followup()` 同步先于 `beginTurn()` 触发 `agent/inbox/claimed` 导致整轮 AI 回复丢失的问题（增加 `claimedTurnsByMessageId` 认领暂存）；
+  - 单槽会话覆盖重构为多回合并发索引，消除连发多条消息串台；
+  - 补齐扫码建应用 `cardkit:card:write` 权限、对 `99991672`/`99991640` 无权限做连接周期负缓存，并按卡片严格串行化 `enqueue()` 队列，杜绝旧 flush 倒灌覆盖终态卡片；
+  - 状态感知 `splitMarkdownChunks` 跨分片自动闭合/重开代码块围栏并复写 Markdown 表格表头。
+- **飞书连接、推送容错与防劫持（P1-3 / P1-5 / P1-6 / P1-8 / 真机修复）**：
+  - 持久化 `feishuMeta`（私聊 `lastPrivateChatId` / 活跃 `ownerOpenId`），主动推送支持按优先级多目标自动回落（解决白名单含旧应用残留 `open_id` 导致 HTTP 400），并新增 `formatSdkError` 完整透出飞书真实 `code`/`msg`；
+  - 修复 `@larksuiteoapi/node-sdk@1.77.0` 中 `WSClient.getConnectionStatus()` 返回 `{ state }` 对象的解析，并加上 `connectSeq` 防僵尸双连接、`pingTimeout: 10` 看门狗、`handshakeTimeoutMs: 15000` 与 `close({ force: true })`；
+  - 欢迎卡片不再劫持「你好 / hi / hello」等发给 AI 的日常问候；
+  - 消除门禁双卡片与双 `patchCard`、私聊/群聊焦点跨聊污染，以及 `domain_switched` / `secretStore.load()` 优先级与旧 `appSecret` 残留问题。
+- **普通模式纯净性与流程稳定性（P0-2 / P1-7 / P1-9 / P1-10）**：
+  - `off` 模式彻底停止注入 Flow 规范与文档上下文，回合中途切模式实时同步卡片标题；
+  - 修复门禁并发结算 TOCTOU 竞态（P0-5）、熔断解锁竞态与空闲态压缩顺序、插件重载路由泄漏与会话卸载全量清理、重启后超时门禁票据收敛与大写票据 ID 大小写不敏感查找。
+- **后端细节与卡片排版（P2-1 / P2-2）**：
+  - 卡片会话短 ID 自动剥离 `session-` 前缀、按钮按每行最多 3 个自动分行并安全截断长标签、异步卡片回调 toast 改为 `info` 态；
+  - 本地 HTTP API 精确区分 `400`/`413`/`415` 与空 body；`team-sse` 增加 15s 超时、1MB 缓冲与 200 成员上限；邮件发送加 30s 超时与 `fromName` 消毒；`flow_send_doc` 默认通道对齐 `both`；`ensureDocs` 精确失效前缀缓存。
+- **设置台 UI 细节与状态自动刷新（P2-3 / 真机修复）**：
+  - 提升开关关闭态滑块轨道对比度；修复乐观覆盖连点回弹闪烁、折叠区受控态、输入框卸载丢草稿与数字输入校验回滚；飞书扫码轮询改为带卸载守卫与 3 次失败终止的递归 `setTimeout`，并增加重启后自动短轮询与窗口切回同步，不再卡在「未连接 / 连接中」。
+
+### Tests
+
+- 新增 [v061-p0-p1-regressions.test.mjs](test/integration/v061-p0-p1-regressions.test.mjs)、[v061-p2-regressions.test.mjs](test/integration/v061-p2-regressions.test.mjs) 与真机回归用例，自动化测试由 25 项扩展至 **40 项**并全量通过。
+
 ## [0.6.0] - 2026-11-27
 
 全面架构重构 + **独立直连飞书指挥官（流式回复 / 原生 `/` 菜单 / 竞争式工具审批）** + **Apple 极简设置台** + 全部 P0/P1 痛点与缺陷清零。

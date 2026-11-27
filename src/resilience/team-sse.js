@@ -13,6 +13,9 @@
 const MAX_BACKOFF_MS = 60_000
 const BASE_BACKOFF_MS = 1_000
 const REFUSED_BASE_MS = 30_000
+const CONNECT_TIMEOUT_MS = 15_000
+const MAX_SSE_BUFFER_CHARS = 1024 * 1024
+const MAX_TRACKED_TEAMS = 200
 const ALERT_TYPES = new Set(['scope.request', 'lease.warn'])
 const TERMINAL_STATUS = new Set(['done', 'failed', 'error', 'stopped', 'succeeded', 'cancelled'])
 
@@ -114,6 +117,11 @@ export function createTeamWatcher({ getConfig, onAlert, onComplete, logger }) {
       if (members === undefined) {
         members = new Map()
         teamMembers.set(teamId, members)
+        while (teamMembers.size > MAX_TRACKED_TEAMS) {
+          const oldest = teamMembers.keys().next().value
+          if (oldest === undefined) break
+          teamMembers.delete(oldest)
+        }
       }
       const prevStatus = members.get(memberId)
       members.set(memberId, status)
@@ -137,10 +145,19 @@ export function createTeamWatcher({ getConfig, onAlert, onComplete, logger }) {
     const headers = { accept: 'text/event-stream' }
     if (lastEventId !== '') headers['last-event-id'] = lastEventId
 
-    const response = await fetch(`${baseUrl}/api/events${query}`, {
-      headers,
-      signal: controller.signal,
-    })
+    const connectTimer = setTimeout(() => {
+      try { controller?.abort() } catch { /* 忽略 */ }
+    }, CONNECT_TIMEOUT_MS)
+    if (typeof connectTimer.unref === 'function') connectTimer.unref()
+    let response
+    try {
+      response = await fetch(`${baseUrl}/api/events${query}`, {
+        headers,
+        signal: controller.signal,
+      })
+    } finally {
+      clearTimeout(connectTimer)
+    }
     if (!response.ok || response.body === null) {
       throw new Error(`SSE HTTP ${response.status}`)
     }
@@ -154,6 +171,10 @@ export function createTeamWatcher({ getConfig, onAlert, onComplete, logger }) {
       const { value, done } = await reader.read()
       if (done) break
       buffer += decoder.decode(value, { stream: true })
+      if (buffer.length > MAX_SSE_BUFFER_CHARS) {
+        try { await reader.cancel() } catch { /* 忽略 */ }
+        throw new Error('SSE 帧缓冲超过 1MB 上限，已主动断流重连')
+      }
       // 兼容 \r\n\r\n 与 \n\n 两种 SSE 帧分隔符。
       let match = /\r?\n\r?\n/.exec(buffer)
       while (match !== null) {

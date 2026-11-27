@@ -94,19 +94,70 @@ function sendJson(request, response, status, body) {
   response.end(text)
 }
 
-/** 读取并解析 JSON 请求体。 */
+class PayloadTooLargeError extends Error {
+  constructor(message = '请求体过大') {
+    super(message)
+    this.name = 'PayloadTooLargeError'
+    this.statusCode = 413
+  }
+}
+
+class BadRequestError extends Error {
+  constructor(message = '请求体不是合法 JSON 对象') {
+    super(message)
+    this.name = 'BadRequestError'
+    this.statusCode = 400
+  }
+}
+
+class UnsupportedMediaTypeError extends Error {
+  constructor(message = 'Content-Type 必须为 application/json') {
+    super(message)
+    this.name = 'UnsupportedMediaTypeError'
+    this.statusCode = 415
+  }
+}
+
+/** 读取并解析 JSON 请求体（严格校验体积上限、JSON 语法与纯对象结构，P2-2 修复）。 */
 async function readJson(request) {
   const chunks = []
   let total = 0
   for await (const chunk of request) {
     total += chunk.length
-    if (total > MAX_BODY_BYTES) throw new Error('请求体过大')
+    if (total > MAX_BODY_BYTES) throw new PayloadTooLargeError('请求体过大（超过 1MB 上限）')
     chunks.push(chunk)
   }
   if (chunks.length === 0) return {}
   const text = Buffer.concat(chunks).toString('utf8')
   if (text.trim() === '') return {}
-  return JSON.parse(text)
+  let parsed
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    throw new BadRequestError('请求体不是合法 JSON')
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new BadRequestError('请求体必须是 JSON 对象')
+  }
+  return parsed
+}
+
+/** 允许空请求体，但只要带了 Content-Type 就校验为 JSON 并严格解析。 */
+async function readOptionalJson(request) {
+  const ct = request?.headers?.['content-type']
+  if (typeof ct === 'string' && ct.trim() !== '' && !isJsonContentType(ct)) {
+    throw new UnsupportedMediaTypeError()
+  }
+  return readJson(request)
+}
+
+function sendBodyError(request, response, error, fallbackStatus = 500) {
+  const status = error instanceof PayloadTooLargeError
+    ? 413
+    : error instanceof UnsupportedMediaTypeError
+      ? 415
+      : (error instanceof BadRequestError || error instanceof SyntaxError ? 400 : fallbackStatus)
+  sendJson(request, response, status, { ok: false, error: error instanceof Error ? error.message : String(error) })
 }
 
 /** 取 URL 里的路径与查询串。 */
@@ -278,7 +329,7 @@ export function createPromptApi({ store, update, feishu, testNotify }) {
         const done = store.writeSubagent(id, typeof body.content === 'string' ? body.content : '')
         sendWriteResult(request, response, done)
       } catch (error) {
-        sendJson(request, response, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
+        sendBodyError(request, response, error, 400)
       }
     },
 
@@ -295,7 +346,7 @@ export function createPromptApi({ store, update, feishu, testNotify }) {
         const done = store.writeRoster(typeof body.content === 'string' ? body.content : '')
         sendWriteResult(request, response, done)
       } catch (error) {
-        sendJson(request, response, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
+        sendBodyError(request, response, error, 400)
       }
     },
 
@@ -307,11 +358,11 @@ export function createPromptApi({ store, update, feishu, testNotify }) {
         return
       }
       try {
-        const body = isJsonContentType(request?.headers?.['content-type']) ? await readJson(request) : {}
+        const body = await readOptionalJson(request)
         const result = await testNotify(typeof body?.channel === 'string' ? body.channel : 'all')
         sendJson(request, response, 200, { ok: true, result })
       } catch (error) {
-        sendJson(request, response, 500, { ok: false, error: error instanceof Error ? error.message : String(error) })
+        sendBodyError(request, response, error, 500)
       }
     },
 
@@ -348,7 +399,7 @@ export function createPromptApi({ store, update, feishu, testNotify }) {
         const result = await feishu.startOnboarding(body)
         sendJson(request, response, result?.ok === true ? 200 : 400, result)
       } catch (error) {
-        sendJson(request, response, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
+        sendBodyError(request, response, error, 400)
       }
     },
 
@@ -381,11 +432,11 @@ export function createPromptApi({ store, update, feishu, testNotify }) {
       if (!guard(request, response, { methods: ['POST'] })) return
       if (!requireFeishu(request, response)) return
       try {
-        const body = isJsonContentType(request?.headers?.['content-type']) ? await readJson(request) : {}
+        const body = await readOptionalJson(request)
         const result = await feishu.connect(body)
         sendJson(request, response, result?.ok === true ? 200 : 400, result)
       } catch (error) {
-        sendJson(request, response, 500, { ok: false, error: error instanceof Error ? error.message : String(error) })
+        sendBodyError(request, response, error, 500)
       }
     },
 
@@ -410,7 +461,7 @@ export function createPromptApi({ store, update, feishu, testNotify }) {
         const result = await feishu.verifyCredentials(body)
         sendJson(request, response, result?.ok === true ? 200 : 400, result)
       } catch (error) {
-        sendJson(request, response, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
+        sendBodyError(request, response, error, 400)
       }
     },
 
@@ -419,11 +470,11 @@ export function createPromptApi({ store, update, feishu, testNotify }) {
       if (!guard(request, response, { methods: ['POST'] })) return
       if (!requireFeishu(request, response)) return
       try {
-        const body = isJsonContentType(request?.headers?.['content-type']) ? await readJson(request) : {}
+        const body = await readOptionalJson(request)
         const result = await feishu.sendTestCard(body)
         sendJson(request, response, result?.ok === true ? 200 : 400, result)
       } catch (error) {
-        sendJson(request, response, 500, { ok: false, error: error instanceof Error ? error.message : String(error) })
+        sendBodyError(request, response, error, 500)
       }
     },
 
@@ -432,11 +483,11 @@ export function createPromptApi({ store, update, feishu, testNotify }) {
       if (!guard(request, response, { methods: ['POST'] })) return
       if (!requireFeishu(request, response)) return
       try {
-        const body = isJsonContentType(request?.headers?.['content-type']) ? await readJson(request) : {}
+        const body = await readOptionalJson(request)
         const result = await feishu.sendWelcomeCard(body)
         sendJson(request, response, result?.ok === true ? 200 : 400, result)
       } catch (error) {
-        sendJson(request, response, 500, { ok: false, error: error instanceof Error ? error.message : String(error) })
+        sendBodyError(request, response, error, 500)
       }
     },
 
@@ -457,11 +508,11 @@ export function createPromptApi({ store, update, feishu, testNotify }) {
       if (!guard(request, response, { methods: ['POST'] })) return
       if (!requireFeishu(request, response)) return
       try {
-        const body = isJsonContentType(request?.headers?.['content-type']) ? await readJson(request) : {}
+        const body = await readOptionalJson(request)
         const result = await feishu.startPermissionUpgrade(body)
         sendJson(request, response, result?.ok === true ? 200 : 400, result)
       } catch (error) {
-        sendJson(request, response, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
+        sendBodyError(request, response, error, 400)
       }
     },
 

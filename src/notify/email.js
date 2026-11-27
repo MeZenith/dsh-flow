@@ -90,15 +90,19 @@ export function createEmailChannel({ getConfig, logger }) {
     const resolved = loadTransport()
     if (resolved.kind === 'nodemailer') {
       try {
+        const safeFromName = String(email.fromName ?? 'dsh-flow').replace(/[\r\n"\\]+/g, ' ').trim() || 'dsh-flow'
         const transporter = resolved.mod.createTransport({
           host: smtp.host,
           port: smtp.port,
           secure: smtp.security === 'ssl',
+          connectionTimeout: 30_000,
+          greetingTimeout: 30_000,
+          socketTimeout: 30_000,
           auth: { user: email.account, pass: email.secret },
           ...(smtp.security === 'ssl' ? {} : { requireTLS: true }),
         })
         await transporter.sendMail({
-          from: `"${email.fromName}" <${email.account}>`,
+          from: `"${safeFromName}" <${email.account}>`,
           to: email.to,
           subject,
           text: body,

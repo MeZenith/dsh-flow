@@ -162,15 +162,21 @@ function SettingRow({ title, subtitle, wideControl, children }) {
     h('div', { className: wideControl ? 'dsh-flow-row-ctrl dsh-flow-row-ctrl-wide' : 'dsh-flow-row-ctrl' }, children))
 }
 
-/** Apple 风格折叠高级分区（默认收起，带右侧摘要标签）。 */
-function DisclosureGroup({ title, summary, defaultOpen = false, children }) {
-  const [open, setOpen] = useState(defaultOpen)
+/** Apple 风格折叠高级分区（默认收起，带右侧摘要标签；支持受控 open + onToggle）。 */
+function DisclosureGroup({ title, summary, defaultOpen = false, open: controlledOpen, onToggle, children }) {
+  const [innerOpen, setInnerOpen] = useState(defaultOpen)
+  const open = typeof controlledOpen === 'boolean' ? controlledOpen : innerOpen
+  const toggle = () => {
+    const next = !open
+    if (typeof onToggle === 'function') onToggle(next)
+    if (typeof controlledOpen !== 'boolean') setInnerOpen(next)
+  }
   return h('div', { className: 'dsh-flow-groupcard' },
     h('button', {
       type: 'button',
       className: 'dsh-flow-disclosure-btn',
       'aria-expanded': open ? 'true' : 'false',
-      onClick: () => { setOpen(v => !v) },
+      onClick: toggle,
     },
     h('span', null, title),
     h('span', { className: 'dsh-flow-disclosure-right' },
@@ -260,21 +266,43 @@ function CustomSelect({ value, options, groups, placeholder, disabled, onChange,
 function TextField({ value, onCommit, onDraftChange, disabled, multiline, placeholder, rows, type, ignoreEmptyCommit }) {
   const [draft, setDraft] = useState(value ?? '')
   const committed = useRef(value ?? '')
+  const draftRef = useRef(draft)
+  const onCommitRef = useRef(onCommit)
+  const ignoreEmptyRef = useRef(ignoreEmptyCommit)
+  draftRef.current = draft
+  onCommitRef.current = onCommit
+  ignoreEmptyRef.current = ignoreEmptyCommit
 
   useEffect(() => {
     const incoming = value ?? ''
     if (incoming !== committed.current) {
       committed.current = incoming
       setDraft(incoming)
+      draftRef.current = incoming
     }
   }, [value])
 
-  const commit = () => {
-    if (draft === committed.current) return
-    if (ignoreEmptyCommit && String(draft).trim() === '') return
-    committed.current = draft
-    if (typeof onCommit === 'function') onCommit(draft)
+  const commitValue = (raw, allowRollback = true) => {
+    if (raw === committed.current) return
+    if (ignoreEmptyRef.current && String(raw).trim() === '') return
+    if (typeof onCommitRef.current === 'function') {
+      // 若调用方返回 false（例如非法数字边界），自动回滚输入框草稿（P2-3 修复）。
+      const ok = onCommitRef.current(raw)
+      if (ok === false) {
+        if (allowRollback) {
+          setDraft(committed.current)
+          draftRef.current = committed.current
+        }
+        return
+      }
+    }
+    committed.current = raw
   }
+
+  // P2-3 修复：切换 Tab 卸载组件时若存在未失焦的有效改动，自动提交避免草稿静默丢失。
+  useEffect(() => () => {
+    commitValue(draftRef.current, false)
+  }, [])
 
   const shared = {
     value: draft,
@@ -283,9 +311,10 @@ function TextField({ value, onCommit, onDraftChange, disabled, multiline, placeh
     onChange: (event) => {
       const next = event.target.value
       setDraft(next)
+      draftRef.current = next
       if (typeof onDraftChange === 'function') onDraftChange(next)
     },
-    onBlur: commit,
+    onBlur: () => { commitValue(draftRef.current, true) },
     onKeyDown: (event) => {
       if (!multiline && event.key === 'Enter') event.currentTarget.blur()
     },

@@ -268,17 +268,36 @@ export function createFeishuReplyStreamer({
   diag = () => {},
 }) {
   /**
-   * 多回合并发索引（修复 P0-3 单槽覆盖）：
+   * 多回合并发索引（修复 P0-3 单槽覆盖 + 真实 DSH 同步 claim 竞态）：
    * - `entriesByTurn`: `${sessionId}:${turn}` → 已绑定具体 turn 的活跃流式卡片；
    * - `pendingByMessageId`: `inboxMessageId` → 等待 DSH `agent/inbox/claimed` 认领的卡片；
+   * - `claimedTurnsByMessageId`: `inboxMessageId` → 真实 DSH 空闲会话下 `agent.followup()` 会在
+   *   `beginTurn()` 之前同步触发 `agent/inbox/claimed`，此处暂存认领结果供 `beginTurn()` 即刻绑定；
    * - `unclaimedBySession`: `sessionId` → 未携带 inboxMessageId 的 FIFO 兜底队列；
    * - `allEntries`: 全部存活卡片，便于超时回收与会话卸载清理。
    */
   const entriesByTurn = new Map()
   const pendingByMessageId = new Map()
+  const claimedTurnsByMessageId = new Map()
   const unclaimedBySession = new Map()
   const allEntries = new Set()
   const streamMetaBySession = new Map()
+  const CLAIMED_STASH_TTL_MS = 60_000
+  const MAX_CLAIMED_STASH = 200
+
+  function stashClaimedTurn(messageId, sessionId, turn) {
+    if (!messageId || !sessionId || !Number.isSafeInteger(turn)) return
+    const now = Date.now()
+    for (const [k, v] of claimedTurnsByMessageId) {
+      if (now - v.at > CLAIMED_STASH_TTL_MS) claimedTurnsByMessageId.delete(k)
+    }
+    claimedTurnsByMessageId.delete(messageId)
+    claimedTurnsByMessageId.set(messageId, { sessionId, turn, at: now })
+    if (claimedTurnsByMessageId.size > MAX_CLAIMED_STASH) {
+      const oldest = claimedTurnsByMessageId.keys().next().value
+      claimedTurnsByMessageId.delete(oldest)
+    }
+  }
 
   function turnKey(sessionId, turn) {
     return `${sessionId}:${turn}`
@@ -529,7 +548,13 @@ export function createFeishuReplyStreamer({
     if (Number.isSafeInteger(turn)) {
       bindTurn(entry, turn)
     } else if (inboxMessageId) {
-      pendingByMessageId.set(inboxMessageId, entry)
+      const earlyClaim = claimedTurnsByMessageId.get(inboxMessageId)
+      if (earlyClaim && earlyClaim.sessionId === sessionId && Number.isSafeInteger(earlyClaim.turn)) {
+        claimedTurnsByMessageId.delete(inboxMessageId)
+        bindTurn(entry, earlyClaim.turn)
+      } else {
+        pendingByMessageId.set(inboxMessageId, entry)
+      }
     } else {
       const queue = unclaimedBySession.get(sessionId) ?? []
       queue.push(entry)
@@ -613,7 +638,12 @@ export function createFeishuReplyStreamer({
     let entry
     if (cleanMsgId !== '') {
       entry = pendingByMessageId.get(cleanMsgId)
-      if (!entry) return
+      if (!entry) {
+        // 真实 DSH 空闲会话会在 agent.followup() 内同步触发 agent/inbox/claimed，
+        // 此时 router.js 尚未调用 beginTurn()，先暂存 (messageId -> turn) 供 beginTurn() 即刻绑定。
+        if (Number.isSafeInteger(turn)) stashClaimedTurn(cleanMsgId, sessionId, turn)
+        return
+      }
     } else {
       entry = shiftUnclaimed(sessionId)
       if (!entry) return
@@ -729,6 +759,9 @@ export function createFeishuReplyStreamer({
     for (const entry of [...allEntries]) {
       if (entry.sessionId === sessionId) cleanup(entry)
     }
+    for (const [k, v] of claimedTurnsByMessageId) {
+      if (v.sessionId === sessionId) claimedTurnsByMessageId.delete(k)
+    }
     unclaimedBySession.delete(sessionId)
   }
 
@@ -737,6 +770,7 @@ export function createFeishuReplyStreamer({
     allEntries.clear()
     entriesByTurn.clear()
     pendingByMessageId.clear()
+    claimedTurnsByMessageId.clear()
     unclaimedBySession.clear()
     streamMetaBySession.clear()
   }

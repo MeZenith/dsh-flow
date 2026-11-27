@@ -5,9 +5,20 @@
  *
  * @module dsh-flow/remote/harness-bridge
  */
-import { basename } from 'node:path'
+import { realpathSync } from 'node:fs'
+import { basename, resolve } from 'node:path'
 import { projectNameOfCwd } from '../shared/message.js'
 import { MODE_OFF } from '../config/constants.js'
+
+function normalizePathKey(rawPath) {
+  const clean = String(rawPath ?? '').trim()
+  if (clean === '') return ''
+  try {
+    return realpathSync(clean).replace(/[\\/]+$/, '').toLowerCase()
+  } catch {
+    return resolve(clean).replace(/[\\/]+$/, '').toLowerCase()
+  }
+}
 
 /**
  * 创建宿主桥接器。
@@ -93,19 +104,22 @@ export function createHarnessBridge({
   async function listWorkspaces() {
     const byCwd = new Map()
 
-    const upsert = (cwd, name) => {
+    const upsert = (cwd, name, workspaceId = '') => {
       const clean = String(cwd ?? '').trim()
       if (clean === '') return
-      const key = clean.toLowerCase()
+      const key = clean.replace(/[\\/]+$/, '').toLowerCase()
       let entry = byCwd.get(key)
       if (entry === undefined) {
         entry = {
           cwd: clean,
           name: String(name || basename(clean.replace(/[\\/]+$/, '')) || clean),
+          workspaceId: String(workspaceId ?? '').trim(),
           sessions: [],
           onlineCount: 0,
         }
         byCwd.set(key, entry)
+      } else if (workspaceId && !entry.workspaceId) {
+        entry.workspaceId = String(workspaceId).trim()
       }
       return entry
     }
@@ -127,7 +141,8 @@ export function createHarnessBridge({
       for (const ws of items) {
         const path = typeof ws === 'string' ? ws : (ws?.cwd ?? ws?.path ?? ws?.root ?? '')
         const name = typeof ws === 'object' ? (ws?.name ?? ws?.label ?? ws?.title) : undefined
-        upsert(path, name)
+        const wsId = typeof ws === 'object' ? (ws?.id ?? ws?.workspaceId ?? '') : ''
+        upsert(path, name, wsId)
       }
     }
 
@@ -155,8 +170,54 @@ export function createHarnessBridge({
     return [...byCwd.values()].sort((a, b) => b.onlineCount - a.onlineCount || a.name.localeCompare(b.name))
   }
 
-  /** 尝试通过宿主 sessionController 为指定工作区拉起新会话。 */
-  async function createSessionForCwd(cwd) {
+  /** 从宿主 `workspaceRegistry` 解析或幂等注册目标目录对应的 `workspaceId`，确保新建会话归属到工作区而非「未分组」。 */
+  async function resolveWorkspaceIdForCwd(cwd, preferredWorkspaceId = '') {
+    const cleanPreferred = String(preferredWorkspaceId ?? '').trim()
+    let wr
+    try {
+      wr = typeof getWorkspaceRegistry === 'function' ? getWorkspaceRegistry() : ctx?.get?.('workspaceRegistry')
+    } catch {
+      wr = undefined
+    }
+    if (wr === undefined || wr === null) return cleanPreferred
+
+    try {
+      if (cleanPreferred !== '') {
+        if (typeof wr.get === 'function') {
+          const hit = await wr.get(cleanPreferred)
+          if (hit?.id) return String(hit.id)
+        }
+      }
+      const wantedKey = normalizePathKey(cwd)
+      let items = []
+      if (typeof wr.list === 'function') items = await wr.list()
+      else if (typeof wr.all === 'function') items = await wr.all()
+      else if (typeof wr.values === 'function') items = [...wr.values()]
+      else if (Array.isArray(wr.workspaces)) items = wr.workspaces
+      else if (typeof wr[Symbol.iterator] === 'function') items = [...wr]
+
+      for (const ws of items) {
+        if (!ws || typeof ws !== 'object') continue
+        const wsId = String(ws.id ?? ws.workspaceId ?? '').trim()
+        if (wsId === '') continue
+        if (cleanPreferred !== '' && wsId === cleanPreferred) return wsId
+        const wsPath = ws.path ?? ws.cwd ?? ws.root ?? ''
+        if (wsPath && normalizePathKey(wsPath) === wantedKey) return wsId
+      }
+
+      // 目录尚未在工作区列表登记时，尝试幂等注册（DSH workspaceRegistry.create 会按规范路径复用或创建工作区）
+      if (typeof wr.create === 'function' && String(cwd ?? '').trim() !== '') {
+        const createdWs = await wr.create(String(cwd).trim())
+        const createdId = String(createdWs?.id ?? createdWs?.workspaceId ?? '').trim()
+        if (createdId !== '') return createdId
+      }
+    } catch { /* 工作区注册表查询/创建失败时安全回落 cwd */ }
+
+    return cleanPreferred
+  }
+
+  /** 尝试通过宿主 sessionController 为指定工作区拉起新会话（优先传 workspaceId 归属到对应工作区）。 */
+  async function createSessionForCwd(cwd, workspaceId = '') {
     try {
       const sc = typeof getSessionController === 'function' ? getSessionController() : ctx?.get?.('sessionController')
       if (sc === undefined) return { ok: false, reason: '宿主未开放 sessionController，请先在 DSH 桌面端打开该目录' }
@@ -166,10 +227,30 @@ export function createHarnessBridge({
           ? sc.createSession.bind(sc)
           : undefined
       if (fn === undefined) return { ok: false, reason: '宿主不支持远程新建会话，请先在 DSH 桌面端打开该目录' }
-      const created = await fn({ cwd })
+
+      // DSH sessionController.create({ workspaceId }) 与 { cwd } 严格互斥：
+      // 只有传 workspaceId 才会执行 workspace.attachSession(sessionId)，否则会话会落入「未分组」。
+      const resolvedWsId = await resolveWorkspaceIdForCwd(cwd, workspaceId)
+      let created
+      if (resolvedWsId !== '') {
+        try {
+          created = await fn({ workspaceId: resolvedWsId })
+        } catch (wsErr) {
+          // 兼容不支持 workspaceId 参数的精简宿主：仅当显式未传 cwd 可回退时再试 { cwd }
+          if (String(cwd ?? '').trim() !== '') {
+            logger?.warn?.(`flow: 按 workspaceId(${resolvedWsId}) 新建会话失败，回落 cwd → ${wsErr instanceof Error ? wsErr.message : String(wsErr)}`)
+            created = await fn({ cwd })
+          } else {
+            throw wsErr
+          }
+        }
+      } else {
+        created = await fn({ cwd })
+      }
+
       const sessionId = String(created?.id ?? created?.sessionId ?? created?.session?.id ?? '')
       if (sessionId === '') return { ok: false, reason: '新建会话未返回有效 sessionId' }
-      stateStore?.rememberWorkspace?.(cwd, projectNameOfCwd(cwd))
+      if (String(cwd ?? '').trim() !== '') stateStore?.rememberWorkspace?.(cwd, projectNameOfCwd(cwd))
       return { ok: true, sessionId }
     } catch (error) {
       logger?.warn?.(`flow: 远程新建会话失败 → ${error instanceof Error ? error.message : String(error)}`)
@@ -178,16 +259,16 @@ export function createHarnessBridge({
   }
 
   /** 向目标会话或目标工作区派发一条用户消息。 */
-  async function sendPrompt({ sessionId, cwd, text, createIfMissing = false, source = 'feishu' }) {
+  async function sendPrompt({ sessionId, cwd, workspaceId, text, createIfMissing = false, source = 'feishu' }) {
     const cleanText = String(text ?? '').trim()
     if (cleanText === '') return { ok: false, reason: '消息内容不能为空' }
 
     let targetSessionId = String(sessionId ?? '').trim()
     let agent = targetSessionId !== '' ? resolveAgent(targetSessionId) : undefined
 
-    if (agent === undefined && typeof cwd === 'string' && cwd.trim() !== '') {
-      const cleanCwd = cwd.trim()
-      if (!createIfMissing) {
+    if (agent === undefined && ((typeof cwd === 'string' && cwd.trim() !== '') || (typeof workspaceId === 'string' && workspaceId.trim() !== ''))) {
+      const cleanCwd = String(cwd ?? '').trim()
+      if (!createIfMissing && cleanCwd !== '') {
         const match = listSessions({ cwd: cleanCwd })[0]
         if (match !== undefined) {
           targetSessionId = match.sessionId
@@ -195,7 +276,7 @@ export function createHarnessBridge({
         }
       }
       if (agent === undefined) {
-        const created = await createSessionForCwd(cleanCwd)
+        const created = await createSessionForCwd(cleanCwd, workspaceId)
         if (!created.ok) return created
         targetSessionId = created.sessionId
         agent = resolveAgent(targetSessionId)

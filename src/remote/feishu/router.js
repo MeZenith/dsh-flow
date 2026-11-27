@@ -109,7 +109,7 @@ export function createFeishuRouter({
     if (fuzzySession) return { sessionId: fuzzySession.sessionId, cwd: fuzzySession.cwd, project: fuzzySession.project }
     const workspaces = await hub.listWorkspaces()
     const ws = workspaces.find(w => w.name.toLowerCase() === needle || w.name.toLowerCase().includes(needle) || w.cwd.toLowerCase() === needle)
-    if (ws) return { sessionId: ws.sessions?.[0]?.sessionId ?? '', cwd: ws.cwd, project: ws.name }
+    if (ws) return { sessionId: ws.sessions?.[0]?.sessionId ?? '', cwd: ws.cwd, workspaceId: ws.workspaceId ?? '', project: ws.name }
     return undefined
   }
 
@@ -176,8 +176,8 @@ export function createFeishuRouter({
       )
     }
 
-    // 1. 欢迎与使用指南卡片（/help /start 帮助 菜单 指南 你好 ?）
-    if (/^\/?(?:help|start|guide)$/i.test(lower) || /^(?:帮助|菜单|指南|使用指南|使用说明|你好|hello|hi|\?|？)$/i.test(text)) {
+    // 1. 欢迎与使用指南卡片（仅响应显式帮助/指南指令，不再劫持「你好/hi/hello」等发给 AI 的日常问候）
+    if (/^\/?(?:help|start|guide)$/i.test(lower) || /^(?:帮助|菜单|指南|使用指南|使用说明|\?|？)$/.test(text)) {
       const sessions = hub.listSessions()
       const activeFocus = getBinding(bindKey, isGroup)
       await client.sendCard(
@@ -295,6 +295,7 @@ export function createFeishuRouter({
       const cwd = matched?.cwd || targetQuery
       const res = await hub.sendPrompt({
         cwd,
+        workspaceId: matched?.workspaceId,
         text: initialPrompt || '你好，请汇报当前工作区状态并等待进一步指示。',
         createIfMissing: true,
         source: 'feishu',
@@ -303,7 +304,13 @@ export function createFeishuRouter({
         await client.sendText(chatId, `新建/唤起会话失败：${res.reason}`, { replyToMessageId: messageId })
         return
       }
-      const binding = { sessionId: res.session.sessionId, cwd: res.session.cwd, project: res.session.project, chatId }
+      const binding = {
+        sessionId: res.session.sessionId,
+        cwd: res.session.cwd,
+        workspaceId: matched?.workspaceId || '',
+        project: res.session.project,
+        chatId,
+      }
       setBinding(bindKey, isGroup, binding)
       if (replyStreamer) {
         replyStreamer.beginTurn({
@@ -333,7 +340,13 @@ export function createFeishuRouter({
         await client.sendText(chatId, `没找到名为「${atMatch[1]}」的项目或在线会话，发送 \`/m\` 可查看全部项目。`, { replyToMessageId: messageId })
         return
       }
-      const sent = await hub.sendPrompt({ sessionId: target.sessionId, cwd: target.cwd, text: prompt, source: 'feishu' })
+      const sent = await hub.sendPrompt({
+        sessionId: target.sessionId,
+        cwd: target.cwd,
+        workspaceId: target.workspaceId,
+        text: prompt,
+        source: 'feishu',
+      })
       if (!sent.ok) {
         await client.sendText(chatId, `投递到「${target.project}」失败：${sent.reason}`, { replyToMessageId: messageId })
         return
@@ -341,6 +354,7 @@ export function createFeishuRouter({
       setBinding(bindKey, isGroup, {
         sessionId: sent.session.sessionId,
         cwd: sent.session.cwd,
+        workspaceId: target.workspaceId || '',
         project: sent.session.project,
         chatId,
       })
@@ -409,6 +423,7 @@ export function createFeishuRouter({
     const delivered = await hub.sendPrompt({
       sessionId: focus.sessionId,
       cwd: focus.cwd,
+      workspaceId: focus.workspaceId,
       text,
       source: 'feishu',
     })
@@ -424,6 +439,7 @@ export function createFeishuRouter({
       setBinding(bindKey, isGroup, {
         sessionId: delivered.session.sessionId,
         cwd: delivered.session.cwd,
+        workspaceId: focus.workspaceId || '',
         project: delivered.session.project,
         chatId,
       })
@@ -561,7 +577,7 @@ export function createFeishuRouter({
           await client.sendText(chatId, `切换模式失败：${res.reason}`)
         }
       })()
-      return { toast: { type: 'success', content: `已切换为 ${targetMode}` } }
+      return { toast: { type: 'info', content: `正在切换为 ${targetMode}…` } }
     }
 
     if (kind === 'turn:abort') {
@@ -593,6 +609,7 @@ export function createFeishuRouter({
       const binding = {
         sessionId: String(value.sessionId ?? ''),
         cwd: String(value.cwd ?? ''),
+        workspaceId: String(value.workspaceId ?? ''),
         project: String(value.project ?? '未命名工作区'),
         chatId,
       }
@@ -656,7 +673,7 @@ export function createFeishuRouter({
           await client.sendText(chatId, `门禁 #${ticketId} 处理结果：${res.reason}`)
         }
       })()
-      return { toast: { type: 'success', content: `已选择：${label}` } }
+      return { toast: { type: 'info', content: `已提交：${label}，处理中…` } }
     }
 
     if (kind === 'brake:action') {
@@ -684,7 +701,7 @@ export function createFeishuRouter({
         }
       })()
       const label = action === 'retry' ? '原模型重试' : action === 'escalate' ? '切救场强模型' : '解除熔断'
-      return { toast: { type: 'success', content: `已执行：${label}` } }
+      return { toast: { type: 'info', content: `正在执行：${label}…` } }
     }
 
     return { toast: { type: 'info', content: '已收到操作' } }

@@ -58,8 +58,8 @@ export function createRemoteHub({ bridge, tickets, settler, gateRouter, breaker,
     return bridge.listSessions(filter)
   }
 
-  async function sendPrompt({ sessionId, cwd, text, createIfMissing = false, source = 'remote' }) {
-    return bridge.sendPrompt({ sessionId, cwd, text, createIfMissing, source })
+  async function sendPrompt({ sessionId, cwd, workspaceId, text, createIfMissing = false, source = 'remote' }) {
+    return bridge.sendPrompt({ sessionId, cwd, workspaceId, text, createIfMissing, source })
   }
 
   /**

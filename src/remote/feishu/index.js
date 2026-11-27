@@ -15,7 +15,7 @@
  * @module dsh-flow/remote/feishu
  */
 import { randomUUID } from 'node:crypto'
-import { createFeishuClient } from './client.js'
+import { createFeishuClient, inferReceiveIdType } from './client.js'
 import { createFeishuOnboarding, createFeishuSecretStore, verifyFeishuCredentials } from './onboarding.js'
 import { createFeishuRouter } from './router.js'
 import { createFeishuReplyStreamer } from './reply-stream.js'
@@ -51,8 +51,23 @@ import { projectNameOfCwd } from '../../shared/message.js'
 export function createFeishuCommander({ hub, getConfig, getCredentials, stateStore, logger, diag = () => {} }) {
   const secretStore = createFeishuSecretStore({ getCredentials, getConfig })
   const savedMeta = stateStore?.getFeishuMeta?.() ?? {}
-  let lastPrivateChatId = String(savedMeta.lastPrivateChatId ?? '').trim()
-  let lastChatId = String(savedMeta.lastChatId ?? '').trim()
+  // 升级兜底：若尚未记录 lastPrivateChatId，从持久化 feishuFocus 中挑最近活跃的一条私聊 chatId 作为初始目标。
+  function latestFocusPrivateChatId() {
+    const focuses = stateStore?.getAllFeishuFocuses?.() ?? {}
+    let bestChat = ''
+    let bestAt = -1
+    for (const [key, binding] of Object.entries(focuses)) {
+      if (!key.startsWith('p2p:') || !binding?.chatId) continue
+      const at = Number(binding.updatedAt ?? 0)
+      if (at >= bestAt) {
+        bestAt = at
+        bestChat = String(binding.chatId).trim()
+      }
+    }
+    return bestChat
+  }
+  let lastPrivateChatId = String(savedMeta.lastPrivateChatId ?? '').trim() || latestFocusPrivateChatId()
+  let lastChatId = String(savedMeta.lastChatId ?? '').trim() || lastPrivateChatId
   let botProfile = { name: '', avatarUrl: '', openId: '' }
   let runtimeAppId = String(savedMeta.runtimeAppId ?? '').trim()
   let runtimeDomain = savedMeta.runtimeDomain === 'lark' ? 'lark' : 'feishu'
@@ -117,14 +132,58 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
     return s.defaultChatId
   }
 
+  /** 收集按优先级排序的去重推送候选列表（避免旧应用残留 open_id / 失效 chat_id 一竿子打死整条推送）。 */
+  function collectPushTargets({ sessionId = '', overrideChatId = '', overrideOpenId = '' } = {}) {
+    const s = settings()
+    const out = []
+    const seen = new Set()
+    const add = (rawId, explicitType) => {
+      const target = String(rawId ?? '').trim()
+      if (target === '') return
+      const receiveIdType = explicitType ?? inferReceiveIdType(target, 'chat_id')
+      const key = `${receiveIdType}:${target}`
+      if (seen.has(key)) return
+      seen.add(key)
+      out.push({ target, receiveIdType })
+    }
+
+    if (overrideChatId) add(overrideChatId, inferReceiveIdType(overrideChatId, 'chat_id'))
+    if (overrideOpenId) add(overrideOpenId, 'open_id')
+
+    if (sessionId) {
+      const boundChat = resolveTargetChatId(sessionId)
+      if (boundChat) add(boundChat, inferReceiveIdType(boundChat, 'chat_id'))
+    }
+    const cfgDefault = String(getConfig()?.feishu?.defaultChatId ?? '').trim()
+    if (cfgDefault) add(cfgDefault, inferReceiveIdType(cfgDefault, 'chat_id'))
+    if (lastPrivateChatId) add(lastPrivateChatId, inferReceiveIdType(lastPrivateChatId, 'chat_id'))
+    if (lastChatId) add(lastChatId, inferReceiveIdType(lastChatId, 'chat_id'))
+
+    const recentFocusChat = latestFocusPrivateChatId()
+    if (recentFocusChat) add(recentFocusChat, inferReceiveIdType(recentFocusChat, 'chat_id'))
+
+    if (runtimeOwnerOpenId) add(runtimeOwnerOpenId, 'open_id')
+    for (const openId of s.allowedOpenIds) {
+      add(openId, 'open_id')
+    }
+    return out
+  }
+
+  /** 依次尝试推送候选目标；若前一个因跨应用 open_id 或无效 chat_id 失败，自动平滑回落下一个。 */
+  async function sendCardToTargets(targets, card) {
+    let lastFailure = { ok: false, reason: '尚未确定推送目标' }
+    for (const dest of targets) {
+      const res = await client.sendCard(dest.target, card, { receiveIdType: dest.receiveIdType })
+      if (res.ok) return { ...res, dest }
+      lastFailure = res
+      diag(`feishu sendCard failed target=${dest.receiveIdType}:${dest.target} reason=${res.reason}`)
+    }
+    return lastFailure
+  }
+
   /** 主动推送目标解析（P1-3 修复）：若暂无 chatId，回落到白名单首位 open_id 直达本人私聊。 */
   function resolvePushTarget(sessionId) {
-    const chatId = resolveTargetChatId(sessionId)
-    if (chatId !== '') return { target: chatId, receiveIdType: 'chat_id' }
-    const s = settings()
-    const openId = String(s.allowedOpenIds?.[0] ?? runtimeOwnerOpenId ?? '').trim()
-    if (openId !== '') return { target: openId, receiveIdType: 'open_id' }
-    return null
+    return collectPushTargets({ sessionId })[0] ?? null
   }
 
   let router
@@ -160,14 +219,20 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
     getConfig,
     replyStreamer,
     resolveApproval,
-    onChatDiscovered: (chatId, _senderOpenId, chatType = '') => {
+    onChatDiscovered: (chatId, senderOpenId, chatType = '') => {
       const clean = String(chatId ?? '').trim()
+      const cleanOpenId = String(senderOpenId ?? '').trim()
       if (clean === '') return
       lastChatId = clean
       if (chatType === 'p2p') {
         lastPrivateChatId = clean
+        if (cleanOpenId !== '') runtimeOwnerOpenId = cleanOpenId
       }
-      stateStore?.setFeishuMeta?.({ lastPrivateChatId, lastChatId })
+      stateStore?.setFeishuMeta?.({
+        lastPrivateChatId,
+        lastChatId,
+        ...(runtimeOwnerOpenId !== '' ? { ownerOpenId: runtimeOwnerOpenId } : {}),
+      })
     },
     logger,
     diag,
@@ -191,22 +256,25 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
   /** 向用户推送开箱欢迎与使用指南卡片。 */
   async function sendWelcomeCard(override = {}) {
     if (!client.isReady()) return { ok: false, reason: '飞书未连接' }
-    const s = settings()
-    const targetChatId = String(override.chatId ?? s.defaultChatId).trim()
-    const targetOpenId = String(override.openId ?? s.allowedOpenIds?.[0] ?? '').trim()
+    const targets = collectPushTargets({
+      overrideChatId: override.chatId,
+      overrideOpenId: override.openId,
+    })
+    if (targets.length === 0) {
+      return { ok: false, reason: '尚未确定推送目标：请先在飞书给机器人发任意消息（如 `/m`），或填写白名单 open_id。' }
+    }
     const card = buildWelcomeCard({
       botAlias: displayAlias(),
       sessions: hub.listSessions(),
     })
-    if (targetChatId !== '') {
-      const res = await client.sendCard(targetChatId, card, { receiveIdType: 'chat_id' })
-      return res.ok ? { ok: true, detail: `已发送使用指南卡片至会话 ${targetChatId}` } : { ok: false, reason: res.reason }
+    const res = await sendCardToTargets(targets, card)
+    if (!res.ok) return { ok: false, reason: res.reason }
+    return {
+      ok: true,
+      detail: res.dest.receiveIdType === 'open_id'
+        ? '已发送使用指南卡片至你的飞书私聊'
+        : `已发送使用指南卡片至会话 ${res.dest.target}`,
     }
-    if (targetOpenId !== '') {
-      const res = await client.sendCard(targetOpenId, card, { receiveIdType: 'open_id' })
-      return res.ok ? { ok: true, detail: `已发送使用指南卡片至你的飞书私聊` } : { ok: false, reason: res.reason }
-    }
-    return { ok: false, reason: '尚未确定推送目标：请先在飞书给机器人发任意消息（如「你好」），或填写白名单 open_id。' }
   }
 
   const onboarding = createFeishuOnboarding({
@@ -248,18 +316,18 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
     if (type === 'gate:created' && s.pushOnGate) {
       const ticket = payload?.ticket
       if (ticket === undefined) return
-      const dest = resolvePushTarget(ticket.sessionId)
-      if (dest === null) {
+      const targets = collectPushTargets({ sessionId: ticket.sessionId })
+      if (targets.length === 0) {
         logger?.warn?.(`flow: 门禁 #${ticket.id} 尚未确定飞书推送目标，跳过飞书卡片推送`)
         return
       }
-      const sent = await client.sendCard(dest.target, buildGateCard({ ticket, botAlias: displayAlias() }), { receiveIdType: dest.receiveIdType })
+      const sent = await sendCardToTargets(targets, buildGateCard({ ticket, botAlias: displayAlias() }))
       if (sent.ok && sent.messageId) {
-        client.trackTicketCard(ticket.id, { messageId: sent.messageId, chatId: dest.target })
+        client.trackTicketCard(ticket.id, { messageId: sent.messageId, chatId: sent.dest.target })
       }
       if (s.sendDocFiles && Array.isArray(payload?.attachments) && payload.attachments.length > 0) {
-        if (sent.messageId || dest.receiveIdType === 'chat_id') {
-          await client.sendFiles(dest.target, payload.attachments, { replyToMessageId: sent.messageId })
+        if (sent.ok && (sent.messageId || sent.dest?.receiveIdType === 'chat_id')) {
+          await client.sendFiles(sent.dest.target, payload.attachments, { replyToMessageId: sent.messageId })
         }
       }
       return
@@ -286,14 +354,14 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
     }
 
     if (type === 'brake:tripped' && s.pushOnBrake) {
-      const dest = resolvePushTarget(payload?.sessionId)
-      if (dest === null) {
+      const targets = collectPushTargets({ sessionId: payload?.sessionId })
+      if (targets.length === 0) {
         logger?.warn?.('flow: 熔断告警尚未确定飞书推送目标，跳过飞书卡片推送')
         return
       }
-      const sent = await client.sendCard(dest.target, buildBrakeCard({ brake: payload, botAlias: displayAlias() }), { receiveIdType: dest.receiveIdType })
+      const sent = await sendCardToTargets(targets, buildBrakeCard({ brake: payload, botAlias: displayAlias() }))
       if (sent.ok && sent.messageId && payload?.sessionId) {
-        client.trackBrakeCard(payload.sessionId, { messageId: sent.messageId, chatId: dest.target })
+        client.trackBrakeCard(payload.sessionId, { messageId: sent.messageId, chatId: sent.dest.target })
       }
       return
     }
@@ -320,15 +388,15 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
     }
 
     if (type === 'session:completed' && s.pushOnComplete) {
-      const dest = resolvePushTarget(payload?.sessionId)
-      if (dest === null) return
-      await client.sendCard(dest.target, buildSummaryCard({
+      const targets = collectPushTargets({ sessionId: payload?.sessionId })
+      if (targets.length === 0) return
+      await sendCardToTargets(targets, buildSummaryCard({
         title: payload?.title ?? 'Flow 阶段进展',
         project: payload?.project ?? '',
         markdown: payload?.markdown ?? '',
         template: 'green',
         botAlias: displayAlias(),
-      }), { receiveIdType: dest.receiveIdType })
+      }))
     }
   })
 
@@ -537,18 +605,18 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
   /** 通用通知发送（供 `src/notify/im.js` 优先调用）。 */
   async function sendNotification({ title, markdown, sessionId, attachments }) {
     if (!client.isReady()) return { ok: false, reason: '飞书长连接未就绪' }
-    const dest = resolvePushTarget(sessionId)
-    if (dest === null) {
+    const targets = collectPushTargets({ sessionId })
+    if (targets.length === 0) {
       return { ok: false, reason: '尚未确定飞书推送目标（请先给机器人发任意消息，或在设置页填 defaultChatId / 白名单 open_id）' }
     }
-    const cardRes = await client.sendCard(dest.target, buildSummaryCard({
+    const cardRes = await sendCardToTargets(targets, buildSummaryCard({
       title: title || 'Flow 通知',
       markdown,
       botAlias: displayAlias(),
-    }), { receiveIdType: dest.receiveIdType })
+    }))
     if (cardRes.ok && Array.isArray(attachments) && attachments.length > 0 && settings().sendDocFiles) {
-      if (cardRes.messageId || dest.receiveIdType === 'chat_id') {
-        await client.sendFiles(dest.target, attachments, { replyToMessageId: cardRes.messageId })
+      if (cardRes.messageId || cardRes.dest?.receiveIdType === 'chat_id') {
+        await client.sendFiles(cardRes.dest.target, attachments, { replyToMessageId: cardRes.messageId })
       }
     }
     return cardRes
@@ -561,25 +629,24 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
       if (!connected.ok) return { ok: false, reason: connected.reason }
     }
     const s = settings()
-    const targetChatId = String(override.chatId ?? s.defaultChatId).trim()
-    const targetOpenId = String(override.openId ?? s.allowedOpenIds?.[0] ?? '').trim()
+    const targets = collectPushTargets({
+      overrideChatId: override.chatId,
+      overrideOpenId: override.openId,
+    })
+    if (targets.length === 0) {
+      return {
+        ok: false,
+        reason: '连接已在线，但还没拿到推送目标：请先在飞书里给机器人发一条消息（如 `/m`），或在设置页填好允许用户的 open_id / defaultChatId。',
+      }
+    }
     const card = buildTestCard({ botAlias: displayAlias(), domain: s.domain, appId: s.appId })
-
-    if (targetChatId !== '') {
-      const res = await client.sendCard(targetChatId, card, { receiveIdType: 'chat_id' })
-      return res.ok
-        ? { ok: true, detail: `已发送飞书测试卡片至会话 ${targetChatId}` }
-        : { ok: false, reason: res.reason }
-    }
-    if (targetOpenId !== '') {
-      const res = await client.sendCard(targetOpenId, card, { receiveIdType: 'open_id' })
-      return res.ok
-        ? { ok: true, detail: `已发送飞书测试卡片至用户 ${targetOpenId}` }
-        : { ok: false, reason: res.reason }
-    }
+    const res = await sendCardToTargets(targets, card)
+    if (!res.ok) return { ok: false, reason: res.reason }
     return {
-      ok: false,
-      reason: '连接已在线，但还没拿到推送目标：请先在飞书里给机器人发一条消息（如 `/m`），或在设置页填好允许用户的 open_id / defaultChatId。',
+      ok: true,
+      detail: res.dest.receiveIdType === 'open_id'
+        ? `已发送飞书测试卡片至用户 ${res.dest.target}`
+        : `已发送飞书测试卡片至会话 ${res.dest.target}`,
     }
   }
 

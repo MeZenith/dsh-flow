@@ -4,6 +4,7 @@
  * @module dsh-flow/client/tabs/workflow-tab
  */
 function WorkflowTab({ value, catalog, disabled, setField, t }) {
+  const [fieldErr, setFieldErr] = useState('')
   const spec = value?.spec && typeof value.spec === 'object' ? value.spec : {}
   const behavior = value?.behavior && typeof value.behavior === 'object' ? value.behavior : {}
   const docsCfg = value?.docs && typeof value.docs === 'object' ? value.docs : {}
@@ -13,6 +14,22 @@ function WorkflowTab({ value, catalog, disabled, setField, t }) {
 
   const circuitOn = circuitCfg.enabled !== false
 
+  const commitInt = (raw, { min, max, label, path }) => {
+    const clean = String(raw ?? '').trim()
+    if (!/^\d+$/.test(clean)) {
+      setFieldErr(`${label} 必须为 ${min}–${max} 的整数，已恢复原值`)
+      return false
+    }
+    const parsed = Number(clean)
+    if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) {
+      setFieldErr(`${label} 需在 ${min}–${max} 范围内，已恢复原值`)
+      return false
+    }
+    setFieldErr('')
+    setField(path, parsed)
+    return true
+  }
+
   const strategyOptions = [
     { value: 'im-first', label: t('strategy.imFirst') },
     { value: 'email-first', label: t('strategy.emailFirst') },
@@ -21,6 +38,7 @@ function WorkflowTab({ value, catalog, disabled, setField, t }) {
   ]
 
   return h('div', { className: 'dsh-flow-stack', role: 'tabpanel' },
+    fieldErr ? h('div', { className: 'dsh-flow-toast dsh-flow-toast-err', role: 'alert' }, fieldErr) : null,
     /* ---- 分组 1：开发流程 ---- */
     h(SectionGroup, { title: t('wf.secFlow') },
       h(SettingRow, { title: t('wf.level') },
@@ -141,19 +159,13 @@ function WorkflowTab({ value, catalog, disabled, setField, t }) {
         h(TextField, {
           value: String(typeof spec.maxChars === 'number' ? spec.maxChars : 600),
           disabled,
-          onCommit: (next) => {
-            const parsed = Number.parseInt(next, 10)
-            if (Number.isFinite(parsed) && parsed >= 80) setField(['spec', 'maxChars'], parsed)
-          },
+          onCommit: next => commitInt(next, { min: 80, max: 4000, label: t('wf.specMaxChars'), path: ['spec', 'maxChars'] }),
         })),
       h(SettingRow, { title: t('wf.timeout'), wideControl: true },
         h(TextField, {
           value: String(typeof gateCfg.timeoutSeconds === 'number' ? gateCfg.timeoutSeconds : 1800),
           disabled,
-          onCommit: (next) => {
-            const parsed = Number.parseInt(next, 10)
-            if (Number.isFinite(parsed) && parsed >= 0) setField(['gate', 'timeoutSeconds'], parsed)
-          },
+          onCommit: next => commitInt(next, { min: 0, max: 86400, label: t('wf.timeout'), path: ['gate', 'timeoutSeconds'] }),
         })),
       h(SettingRow, { title: t('wf.escalate'), wideControl: true },
         h(CustomSelect, {
@@ -181,10 +193,7 @@ function WorkflowTab({ value, catalog, disabled, setField, t }) {
         h(TextField, {
           value: String(circuitCfg.idleSeconds ?? 120),
           disabled,
-          onCommit: (next) => {
-            const parsed = Number.parseInt(next, 10)
-            if (Number.isFinite(parsed) && parsed >= 0) setField(['circuit', 'idleSeconds'], parsed)
-          },
+          onCommit: next => commitInt(next, { min: 0, max: 86400, label: t('wf.idleSeconds'), path: ['circuit', 'idleSeconds'] }),
         })),
       h(SettingRow, { title: t('wf.debugLog') },
         h(ToggleSwitch, {

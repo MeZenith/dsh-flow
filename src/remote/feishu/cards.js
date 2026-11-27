@@ -33,10 +33,17 @@ function mdBlock(content) {
   return { tag: 'markdown', content: String(content ?? '') }
 }
 
+function shortSessionId(sessionId) {
+  const clean = String(sessionId ?? '').trim()
+  if (clean === '') return ''
+  const stripped = clean.replace(/^session-/i, '')
+  return (stripped || clean).slice(0, 8)
+}
+
 function buttonEl({ text, type = 'default', value }) {
   return {
     tag: 'button',
-    text: { tag: 'plain_text', content: text },
+    text: { tag: 'plain_text', content: clip(text, 28) },
     type,
     size: 'medium',
     behaviors: [{ type: 'callback', value }],
@@ -56,6 +63,15 @@ function buttonColumnSet(buttons) {
   }
 }
 
+/** 按每行最多 `perRow` 个按钮分行排布，避免窄屏手机 6–8 个按钮挤在同一行（P2-1 修复）。 */
+function buttonRows(buttons, perRow = 3) {
+  const rows = []
+  for (let i = 0; i < buttons.length; i += perRow) {
+    rows.push(buttonColumnSet(buttons.slice(i, i + perRow)))
+  }
+  return rows
+}
+
 /** 1. 工作区与在线会话选择卡片。 */
 export function buildWorkspaceCard({
   workspaces = [],
@@ -68,7 +84,7 @@ export function buildWorkspaceCard({
   const scopeMeta = bindKey ? { bindKey, isGroup: isGroup === true } : {}
   const elements = []
   const focusLabel = activeFocus?.project
-    ? `当前聚焦：**${activeFocus.project}**${activeFocus.sessionId ? `（\`${activeFocus.sessionId.slice(0, 8)}\`）` : ''}`
+    ? `当前聚焦：**${activeFocus.project}**${activeFocus.sessionId ? `（\`${shortSessionId(activeFocus.sessionId)}\`）` : ''}`
     : '当前未聚焦任何会话，请点击下方按钮选择项目，或直接输入 `@项目名 你的指令`。'
   elements.push(mdBlock(focusLabel))
 
@@ -84,12 +100,12 @@ export function buildWorkspaceCard({
           kind: 'focus:session',
           sessionId: item.sessionId,
           cwd: item.cwd,
-          project: item.project,
+          project: clip(item.project, 40),
           ...scopeMeta,
         },
       })
     })
-    elements.push(buttonColumnSet(buttons))
+    elements.push(...buttonRows(buttons, 3))
   } else {
     elements.push(mdBlock('暂无在线桌面会话。若工作区列表里有项目，可点下方按钮尝试唤醒，或在 DSH 桌面端打开目录。'))
   }
@@ -97,16 +113,17 @@ export function buildWorkspaceCard({
   const offlineWorkspaces = workspaces.filter(ws => ws.onlineCount === 0).slice(0, 6)
   if (offlineWorkspaces.length > 0) {
     elements.push(mdBlock('**最近使用工作区（离线）**'))
-    elements.push(buttonColumnSet(offlineWorkspaces.map(ws => buttonEl({
+    elements.push(...buttonRows(offlineWorkspaces.map(ws => buttonEl({
       text: `📁 ${ws.name}`,
       type: 'default',
       value: {
         kind: 'focus:workspace',
         cwd: ws.cwd,
-        project: ws.name,
+        ...(ws.workspaceId ? { workspaceId: ws.workspaceId } : {}),
+        project: clip(ws.name, 40),
         ...scopeMeta,
       },
-    }))))
+    })), 3))
   }
 
   elements.push(mdBlock('常用指令：`/m` 项目面板 · `/p` 查看待决门禁/熔断 · `/mode build` 切模式 · `/stop` 中止 · `@项目名 指令` 直发'))
@@ -145,7 +162,7 @@ export function buildGateCard({ ticket, botAlias = DEFAULT_BOT_NAME }) {
       ticketId: ticket.id,
       token: String(index + 1),
       action: opt.action,
-      label: opt.label,
+      label: clip(opt.label, 32),
     },
   }))
 
@@ -158,7 +175,7 @@ export function buildGateCard({ ticket, botAlias = DEFAULT_BOT_NAME }) {
     },
   }))
 
-  elements.push(buttonColumnSet(optionButtons))
+  elements.push(...buttonRows(optionButtons, 3))
   elements.push(mdBlock(`如需附带修改意见，可直接回复：\`#${ticket.id} 1 你的具体意见\``))
 
   return {
@@ -384,7 +401,7 @@ export function buildModeCard({ project = '当前项目', sessionId = '', curren
       elements: [
         mdBlock(descLines),
         { tag: 'hr' },
-        buttonColumnSet(buttons),
+        ...buttonRows(buttons, 3),
       ],
     },
   }

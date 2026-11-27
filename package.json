@@ -1,6 +1,6 @@
 {
   "name": "dsh-flow",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "type": "module",
   "description": "Flow 工作流、提示词管家与直连飞书指挥官：五大模式、编号文档体系、连续报错熔断与多项目手机远程指挥。",
   "icon": "./icon.svg",

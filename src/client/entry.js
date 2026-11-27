@@ -22,10 +22,26 @@ function FlowSettingsCard(props) {
 
   useEffect(() => {
     let alive = true
-    apiCall('GET', '/api/dsh-flow/feishu/status')
-      .then((res) => { if (alive && res?.data?.state) setFeishuState(res.data.state) })
-      .catch(() => {})
-    return () => { alive = false }
+    let retryTimer = null
+    const pull = (canRetry) => {
+      apiCall('GET', '/api/dsh-flow/feishu/status')
+        .then((res) => {
+          if (!alive) return
+          const st = res?.data?.state
+          if (st) setFeishuState(st)
+          if (canRetry && st !== 'connected') {
+            retryTimer = setTimeout(() => pull(false), 2500)
+          }
+        })
+        .catch(() => {
+          if (alive && canRetry) retryTimer = setTimeout(() => pull(false), 2500)
+        })
+    }
+    pull(true)
+    return () => {
+      alive = false
+      if (retryTimer !== null) clearTimeout(retryTimer)
+    }
   }, [])
 
   useEffect(() => {
@@ -72,6 +88,8 @@ function FlowSettingsCard(props) {
     return () => { alive = false }
   }, [appCtx])
 
+  const seqByKeyRef = useRef(new Map())
+
   const dropOverride = useCallback((key) => {
     setOverrides((prev) => {
       if (!(key in prev)) return prev
@@ -81,10 +99,10 @@ function FlowSettingsCard(props) {
     })
   }, [])
 
-  const mutate = useCallback(async (ops, key) => {
+  const mutate = useCallback(async (ops, key, seq) => {
     if (!form || typeof form.mutate !== 'function') {
       setError(t('error.noForm'))
-      if (key !== undefined) dropOverride(key)
+      if (key !== undefined && (seq === undefined || seqByKeyRef.current.get(key) === seq)) dropOverride(key)
       return
     }
     setError(null)
@@ -94,20 +112,27 @@ function FlowSettingsCard(props) {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
-      if (key !== undefined) dropOverride(key)
+      // P2-3 修复：仅当本次请求仍为该 key 的最新请求时才清理乐观覆盖值，防连点回弹闪烁。
+      if (key !== undefined && (seq === undefined || seqByKeyRef.current.get(key) === seq)) {
+        dropOverride(key)
+      }
     }
   }, [form, t, dropOverride])
 
   const setField = useCallback((path, next) => {
     const key = pathKey(path)
+    const seq = (seqByKeyRef.current.get(key) ?? 0) + 1
+    seqByKeyRef.current.set(key, seq)
     setOverrides(prev => ({ ...prev, [key]: next }))
-    void mutate([{ op: 'set', path, value: next }], key)
+    void mutate([{ op: 'set', path, value: next }], key, seq)
   }, [mutate])
 
   const unsetField = useCallback((path) => {
     const key = pathKey(path)
+    const seq = (seqByKeyRef.current.get(key) ?? 0) + 1
+    seqByKeyRef.current.set(key, seq)
     dropOverride(key)
-    void mutate([{ op: 'unset', path }], key)
+    void mutate([{ op: 'unset', path }], key, seq)
   }, [mutate, dropOverride])
 
   if (!form || snapshot === null) {

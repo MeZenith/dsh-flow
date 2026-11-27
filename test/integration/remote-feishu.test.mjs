@@ -301,7 +301,7 @@ test('Feishu Commander end-to-end: QR onboarding, allowlist, multi-project @rout
       context: { open_chat_id: 'oc_default_chat', open_message_id: cardMsg.id },
       action: { value: { kind: 'gate:decide', ticketId: ticket.id, token: '1', action: 'approve', label: '同意进入 Build' } },
     })
-    assert.equal(ack.toast.type, 'success')
+    assert.equal(ack.toast.type, 'info')
     await new Promise(r => setTimeout(r, 30))
     assert.equal(tickets.find(ticket.id).state, 'answered')
     assert.deepEqual(switchedModes, ['build'])
@@ -319,7 +319,7 @@ test('Feishu Commander end-to-end: QR onboarding, allowlist, multi-project @rout
       context: { open_chat_id: 'oc_default_chat', open_message_id: brakeMsg.id },
       action: { value: { kind: 'brake:action', sessionId: 'sess-A', action: 'escalate', project: 'alpha' } },
     })
-    assert.equal(brakeAck.toast.type, 'success')
+    assert.equal(brakeAck.toast.type, 'info')
     await new Promise(r => setTimeout(r, 20))
     assert.ok(patchedMessages.some(p => p.path.message_id === brakeMsg.id && p.data.content.includes('熔断已解除')))
 
@@ -481,11 +481,11 @@ test('Feishu v0.6.1: streaming reply cards, desktop sync isolation, welcome & mo
     assert.equal(syncedRes.created, FLOW_SLASH_COMMANDS.length - 1)
     assert.equal(createdCmds[createdCmds.length - 1], 'mode')
 
-    // 2. 欢迎引导卡 & 图形模式切换卡（点按钮切模式并原地 patch）
+    // 2. 欢迎引导卡（仅响应显式帮助/指南指令）& 图形模式切换卡（点按钮切模式并原地 patch）
     await registeredHandlers['im.message.receive_v1']({
-      event_id: 'ev-hi',
+      event_id: 'ev-help',
       sender: { sender_id: { open_id: 'ou_me' } },
-      message: { message_id: 'm-hi', chat_id: 'oc_me', chat_type: 'p2p', message_type: 'text', content: JSON.stringify({ text: '你好' }) },
+      message: { message_id: 'm-help', chat_id: 'oc_me', chat_type: 'p2p', message_type: 'text', content: JSON.stringify({ text: '帮助' }) },
     })
     assert.ok(sentMessages.some(m => m.data.content.includes('3 秒上手') && m.data.content.includes('ui:open-modes')))
 
@@ -503,7 +503,7 @@ test('Feishu v0.6.1: streaming reply cards, desktop sync isolation, welcome & mo
       context: { open_chat_id: 'oc_me', open_message_id: modeCardMsg.id },
       action: { value: { kind: 'mode:switch', sessionId: 'sess-1', project: 'demo', mode: 'build' } },
     })
-    assert.equal(modeAck.toast.type, 'success')
+    assert.equal(modeAck.toast.type, 'info')
     await new Promise(r => setTimeout(r, 30))
     assert.equal(currentMode, 'build')
     assert.ok(patchedMessages.some(p => p.path.message_id === modeCardMsg.id && p.data.content.includes('当前：build')))
@@ -601,6 +601,196 @@ test('Feishu v0.6.1: streaming reply cards, desktop sync isolation, welcome & mo
     // 7. 长回复自动分片
     const longChunks = splitMarkdownChunks(`${'段落内容。'.repeat(400)}\n\n${'后半段内容。'.repeat(400)}`, 1000)
     assert.ok(longChunks.length >= 4)
+
+    await commander.dispose()
+    tickets.dispose()
+  } finally {
+    setFeishuSdkOverride(undefined)
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('Feishu v0.6.1 live regressions: sync agent/inbox/claimed race, workspaceId attach, greeting passthrough, multi-openId 400 fallback & object WS status', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-flow-feishu-live-'))
+  const sentMessages = []
+  const patchedMessages = []
+  const createCalls = []
+  let registeredHandlers = null
+
+  const mockSdk = {
+    Domain: { 0: 'Feishu', 1: 'Lark', Feishu: 0, Lark: 1 },
+    LoggerLevel: { warn: 3 },
+    Client: class MockClient {
+      async request(req) {
+        if (req.url === '/open-apis/bot/v3/info') {
+          return { code: 0, bot: { app_name: 'Flow 指挥官', avatar_url: '', open_id: 'ou_bot' } }
+        }
+        return { code: 0 }
+      }
+      im = {
+        v1: {
+          message: {
+            create: async (args) => {
+              // 模拟旧应用残留的 open_id 导致飞书 Axios 400，且带 response.data 详情
+              if (args.data.receive_id === 'ou_stale_old_app') {
+                const err = new Error('Request failed with status code 400')
+                err.response = { status: 400, data: { code: 230001, msg: 'cross app open_id not allowed' } }
+                throw err
+              }
+              const id = `om_${sentMessages.length + 1}`
+              sentMessages.push({ kind: 'create', id, ...args })
+              return { code: 0, data: { message_id: id } }
+            },
+            reply: async (args) => {
+              const id = `om_${sentMessages.length + 1}`
+              sentMessages.push({ kind: 'reply', id, ...args })
+              return { code: 0, data: { message_id: id } }
+            },
+            patch: async (args) => {
+              patchedMessages.push(args)
+              return { code: 0 }
+            },
+          },
+        },
+      }
+    },
+    EventDispatcher: class { register(h) { registeredHandlers = h; return this } },
+    WSClient: class {
+      async start() { return true }
+      async close() { return true }
+      // 真实 @larksuiteoapi/node-sdk 1.77.0 返回对象 { state: 'connected' }
+      getConnectionStatus() { return { state: 'connected', reconnectAttempts: 0 } }
+    },
+  }
+
+  setFeishuSdkOverride(mockSdk)
+  try {
+    const cfg = {
+      docs: { enabled: false },
+      gate: { persist: false },
+      circuit: { threshold: 3 },
+      feishu: {
+        enabled: true,
+        domain: 'feishu',
+        appId: 'cli_live',
+        appSecret: 'sec_live',
+        allowedOpenIds: ['ou_stale_old_app', 'ou_valid_new_app'],
+        defaultChatId: '',
+        pushOnGate: true,
+        pushOnBrake: true,
+        pushOnComplete: true,
+      },
+    }
+    const getConfig = () => cfg
+    const stateStore = createFlowStateStore({ filePath: join(root, 'state.json'), persist: false })
+    const agents = []
+    const inbox = []
+    let commander
+
+    const fakeWorkspaceRegistry = {
+      list: () => [{ id: 'ws-polaris', path: '/work/polaris', title: '北极星-三角洲', sessionIds: [] }],
+    }
+    const fakeSessionController = {
+      create: async (req) => {
+        createCalls.push(req)
+        assert.equal(req.cwd, undefined, '传 workspaceId 时绝不能同时传 cwd，否则真实 DSH 会报 gateway/bad-request')
+        assert.equal(req.workspaceId, 'ws-polaris')
+        const createdAgent = {
+          id: 'ag-polaris',
+          session: { id: 'session-polaris-1', header: { cwd: '/work/polaris' } },
+          // 复刻真实 DSH ReactLoopAgent：空闲会话调用 followup() 时同步触发 agent/inbox/claimed（早于 beginTurn 返回！）
+          followup: (m) => {
+            inbox.push(m)
+            commander.onInboxClaimed({ sessionId: 'session-polaris-1', messageId: m.id, turn: 1 })
+          },
+          cancel() {},
+        }
+        agents.push(createdAgent)
+        return { sessionId: 'session-polaris-1' }
+      },
+    }
+
+    const resolveAgent = sid => agents.find(a => a.session.id === sid)
+    const tickets = createGateTickets({ getConfig })
+    const settler = createGateSettler({ getConfig, switchMode: async () => ({ label: 'flow', notes: [] }), tickets, resolveAgent })
+    const gateRouter = createGateRouter({ tickets, getConfig, resolveAgent, settler })
+    const breaker = { isLocked: () => false, listTrips: () => [], resolveRemoteAction: async () => ({ ok: true }) }
+    const bridge = createHarnessBridge({
+      ctx: { agents: { list: () => agents } },
+      readMode: () => 'flow',
+      resolveAgent,
+      switchMode: async () => ({ label: 'flow', notes: [] }),
+      tickets,
+      breaker,
+      stateStore,
+      getSessionController: () => fakeSessionController,
+      getWorkspaceRegistry: () => fakeWorkspaceRegistry,
+    })
+    const hub = createRemoteHub({ bridge, tickets, settler, gateRouter, breaker, getConfig })
+    commander = createFeishuCommander({ hub, getConfig, stateStore })
+
+    const conn = await commander.connect()
+    assert.equal(conn.ok, true)
+    assert.equal((await commander.status()).state, 'connected')
+
+    // 1. 首个白名单 open_id 报 400（旧应用残留）时，自动回落第二个 open_id 成功发出测试卡片与欢迎指南
+    const testRes = await commander.sendTestCard()
+    assert.equal(testRes.ok, true)
+    assert.ok(testRes.detail.includes('ou_valid_new_app'))
+    const welcomeRes = await commander.sendWelcomeCard()
+    assert.equal(welcomeRes.ok, true)
+
+    // 全部目标都失败时，暴露真实飞书 code + msg 而非裸 400
+    const badRes = await commander.sendTestCard({ openId: 'ou_stale_old_app' })
+    assert.equal(badRes.ok, true) // 会继续回落到 ou_valid_new_app
+    cfg.feishu.allowedOpenIds = ['ou_stale_old_app']
+    const allBad = await commander.sendTestCard()
+    assert.equal(allBad.ok, false)
+    assert.ok(allBad.reason.includes('230001') && allBad.reason.includes('cross app open_id'))
+    cfg.feishu.allowedOpenIds = ['ou_stale_old_app', 'ou_valid_new_app']
+
+    // 2. 选择离线工作区「北极星-三角洲」，再直接发「你好」：
+    //    - 绝不劫持为欢迎指南卡片
+    //    - 通过 sessionController.create({ workspaceId: 'ws-polaris' }) 在工作区内新建会话（不落入未分组）
+    //    - 尽管 agent/inbox/claimed 在 followup() 内同步先于 beginTurn() 触发，AI 流式回复与定稿仍完整回传飞书！
+    const focusAck = await registeredHandlers['card.action.trigger']({
+      event_id: 'ev-focus-ws',
+      operator: { open_id: 'ou_valid_new_app' },
+      context: { open_chat_id: 'oc_live_chat', open_message_id: 'om_menu' },
+      action: { value: { kind: 'focus:workspace', cwd: '/work/polaris', workspaceId: 'ws-polaris', project: '北极星-三角洲', bindKey: 'p2p:ou_valid_new_app', isGroup: false } },
+    })
+    assert.equal(focusAck.toast.type, 'success')
+
+    await registeredHandlers['im.message.receive_v1']({
+      event_id: 'ev-greet-ai',
+      sender: { sender_id: { open_id: 'ou_valid_new_app' } },
+      message: { message_id: 'm-greet', chat_id: 'oc_live_chat', chat_type: 'p2p', message_type: 'text', content: JSON.stringify({ text: '你好' }) },
+    })
+    assert.equal(createCalls.length, 1)
+    assert.equal(inbox.length, 1)
+    assert.equal(inbox[0].content[0].text, '你好')
+
+    // 模拟 AI 随后输出正文与回合结束
+    commander.onAssistantStream({ sessionId: 'session-polaris-1', frame: { type: 'start', attemptId: 'a1', turn: 1, step: 1 }, project: '北极星-三角洲', mode: 'flow' })
+    commander.onAssistantStream({ sessionId: 'session-polaris-1', frame: { type: 'chunk', attemptId: 'a1', chunk: { type: 'text-delta', index: 0, text: '你好！北极星工作区已就绪。' } }, project: '北极星-三角洲', mode: 'flow' })
+    commander.onSessionEvent({
+      sessionId: 'session-polaris-1',
+      event: { type: 'assistant/message', data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: '你好！北极星工作区已就绪。' }] } } },
+      project: '北极星-三角洲',
+      mode: 'flow',
+    })
+    commander.onSessionEvent({
+      sessionId: 'session-polaris-1',
+      event: { type: 'turn/end', data: { turn: 1, reason: 'completed' } },
+      project: '北极星-三角洲',
+      mode: 'flow',
+    })
+    await new Promise(r => setTimeout(r, 80))
+
+    assert.ok(
+      patchedMessages.some(p => p.data.content.includes('你好！北极星工作区已就绪。')),
+      '真实同步 agent/inbox/claimed 时序下，AI 定稿回复必须成功回推到飞书卡片',
+    )
 
     await commander.dispose()
     tickets.dispose()

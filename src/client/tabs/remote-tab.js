@@ -31,16 +31,26 @@ function RemoteTab({ value, disabled, setField, t, onFeishuState }) {
   const [onboard, setOnboard] = useState(null)
   const [manualMode, setManualMode] = useState(false)
   const [botNameDraft, setBotNameDraft] = useState(() => (typeof feishuCfg.botName === 'string' && feishuCfg.botName !== '' ? feishuCfg.botName : 'Flow 指挥官'))
+  const [appIdDraft, setAppIdDraft] = useState(() => (typeof feishuCfg.appId === 'string' ? feishuCfg.appId : ''))
+  const [appSecretDraft, setAppSecretDraft] = useState('')
   const [busy, setBusy] = useState('')
   const [feedback, setFeedback] = useState(null)
   const [testReport, setTestReport] = useState(null)
   const fileInputRef = useRef(null)
+  const allowedIdsRef = useRef(feishuCfg.allowedOpenIds)
+  allowedIdsRef.current = feishuCfg.allowedOpenIds
+  const appSecretCfgRef = useRef(feishuCfg.appSecret)
+  appSecretCfgRef.current = feishuCfg.appSecret
 
   useEffect(() => {
     if (typeof feishuCfg.botName === 'string' && feishuCfg.botName !== '') {
       setBotNameDraft(feishuCfg.botName)
     }
   }, [feishuCfg.botName])
+
+  useEffect(() => {
+    if (typeof feishuCfg.appId === 'string') setAppIdDraft(feishuCfg.appId)
+  }, [feishuCfg.appId])
 
   const refreshFeishuStatus = useCallback(() => {
     apiCall('GET', '/api/dsh-flow/feishu/status')
@@ -63,39 +73,112 @@ function RemoteTab({ value, disabled, setField, t, onFeishuState }) {
       .catch(() => {})
   }, [refreshFeishuStatus])
 
+  // 重启后后端 autoStart() 需要 1–3 秒完成凭证校验与 WS 握手；
+  // 未进入 connected 时短轮询几次，并在切回标签页时自动同步，避免页面卡死在「未连接 / 连接中」。
+  useEffect(() => {
+    const state = feishuStatus?.state ?? ''
+    const hasConfiguredApp = Boolean(String(feishuCfg.appId || feishuStatus?.appId || '').trim())
+    const shouldRetry = state === '' || state === 'connecting' || (feishuCfg.enabled === true && hasConfiguredApp && state !== 'connected')
+    if (!shouldRetry) return undefined
+    let alive = true
+    let count = 0
+    let timer = null
+    const tick = () => {
+      if (!alive || count >= 8) return
+      count += 1
+      apiCall('GET', '/api/dsh-flow/feishu/status')
+        .then((res) => {
+          if (!alive) return
+          if (res?.data) {
+            setFeishuStatus(res.data)
+            onFeishuState?.(res.data.state ?? 'disconnected')
+            if (res.data.onboarding) setOnboard(res.data.onboarding)
+            if (res.data.state === 'connected') return
+          }
+          if (count < 8) timer = setTimeout(tick, 2000)
+        })
+        .catch(() => {
+          if (alive && count < 8) timer = setTimeout(tick, 2000)
+        })
+    }
+    timer = setTimeout(tick, 1500)
+    return () => {
+      alive = false
+      if (timer !== null) clearTimeout(timer)
+    }
+  }, [feishuStatus?.state, feishuStatus?.appId, feishuCfg.appId, feishuCfg.enabled, onFeishuState])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+    const onFocus = () => { refreshFeishuStatus() }
+    window.addEventListener('focus', onFocus)
+    return () => { window.removeEventListener('focus', onFocus) }
+  }, [refreshFeishuStatus])
+
   const isOnboardingActive = onboard && (
     onboard.phase === 'starting' || onboard.phase === 'qr_ready' || onboard.phase === 'scanned'
   )
 
   useEffect(() => {
     if (!isOnboardingActive) return undefined
-    const timer = setInterval(() => {
+    let alive = true
+    let timer = null
+    let failCount = 0
+
+    // P2-3 修复：改为带卸载守卫的递归 setTimeout，连续失败 3 次给出明确提示并停止轮询。
+    const poll = () => {
       apiCall('GET', '/api/dsh-flow/feishu/onboard/status')
         .then((res) => {
+          if (!alive) return
+          failCount = 0
           const data = res?.data
-          if (!data) return
+          if (!data) {
+            timer = setTimeout(poll, 2000)
+            return
+          }
           setOnboard(data)
           if (data.phase === 'completed') {
             if (data.appId) setField(['feishu', 'appId'], data.appId)
             if (data.domain === 'lark' || data.domain === 'feishu') setField(['feishu', 'domain'], data.domain)
-            if (feishuCfg.appSecret) setField(['feishu', 'appSecret'], '')
+            if (appSecretCfgRef.current) setField(['feishu', 'appSecret'], '')
             setField(['feishu', 'enabled'], true)
             if (data.ownerOpenId) {
-              const prev = Array.isArray(feishuCfg.allowedOpenIds) ? feishuCfg.allowedOpenIds : []
+              const prev = Array.isArray(allowedIdsRef.current) ? allowedIdsRef.current : []
               if (!prev.includes(data.ownerOpenId)) setField(['feishu', 'allowedOpenIds'], [...prev, data.ownerOpenId])
             }
             setFeedback({ kind: 'ok', text: `已连接 ${data.appId}` })
             refreshFeishuStatus()
-          } else if (data.phase === 'failed') {
+            return
+          }
+          if (data.phase === 'failed') {
             setFeedback({ kind: 'error', text: data.error || data.statusText || '扫码建应用失败' })
+            return
+          }
+          if (data.phase === 'starting' || data.phase === 'qr_ready' || data.phase === 'scanned') {
+            timer = setTimeout(poll, 2000)
           }
         })
-        .catch(() => {})
-    }, 2000)
-    return () => { clearInterval(timer) }
-  }, [isOnboardingActive, feishuCfg.allowedOpenIds, setField, refreshFeishuStatus])
+        .catch((err) => {
+          if (!alive) return
+          failCount += 1
+          if (failCount >= 3) {
+            setOnboard(prev => (prev ? { ...prev, phase: 'failed' } : null))
+            setFeedback({ kind: 'error', text: `扫码状态轮询中断：${err instanceof Error ? err.message : String(err)}` })
+            return
+          }
+          timer = setTimeout(poll, 2000)
+        })
+    }
+
+    timer = setTimeout(poll, 2000)
+    return () => {
+      alive = false
+      if (timer !== null) clearTimeout(timer)
+    }
+  }, [isOnboardingActive, setField, refreshFeishuStatus])
 
   const runAction = async (key, fn) => {
+    if (busy !== '') return
     setBusy(key)
     setFeedback(null)
     try {
@@ -363,20 +446,22 @@ function RemoteTab({ value, disabled, setField, t, onFeishuState }) {
           h('div', { className: 'dsh-flow-row-meta' }, h('span', { className: 'dsh-flow-row-title' }, t('feishu.appId'))),
           h('div', { className: 'dsh-flow-row-ctrl dsh-flow-row-ctrl-wide' },
             h(TextField, {
-              value: typeof feishuCfg.appId === 'string' ? feishuCfg.appId : '',
+              value: appIdDraft,
               disabled,
               placeholder: 'cli_xxxxxxxxxx',
-              onCommit: next => { setField(['feishu', 'appId'], next.trim()) },
+              onDraftChange: setAppIdDraft,
+              onCommit: next => { const clean = next.trim(); setAppIdDraft(clean); setField(['feishu', 'appId'], clean) },
             }))),
         h('div', { className: 'dsh-flow-setting-row' },
           h('div', { className: 'dsh-flow-row-meta' }, h('span', { className: 'dsh-flow-row-title' }, t('feishu.appSecret'))),
           h('div', { className: 'dsh-flow-row-ctrl dsh-flow-row-ctrl-wide' },
             h(TextField, {
-              value: '',
+              value: appSecretDraft,
               type: 'password',
               ignoreEmptyCommit: true,
               disabled,
               placeholder: t('feishu.appSecretPlaceholder'),
+              onDraftChange: setAppSecretDraft,
               onCommit: next => { setField(['feishu', 'appSecret'], next.trim()) },
             }))),
         h('div', { className: 'dsh-flow-setting-row' },
@@ -394,11 +479,12 @@ function RemoteTab({ value, disabled, setField, t, onFeishuState }) {
             h('button', {
               type: 'button',
               className: 'dsh-flow-btn',
-              disabled: busy === 'verify',
+              disabled: busy !== '',
               onClick: () => {
                 void runAction('verify', async () => {
                   const res = await apiCall('POST', '/api/dsh-flow/feishu/verify', {
-                    appId: feishuCfg.appId || '',
+                    appId: appIdDraft.trim() || feishuCfg.appId || '',
+                    ...(appSecretDraft.trim() !== '' ? { appSecret: appSecretDraft.trim() } : {}),
                     domain: feishuCfg.domain === 'lark' ? 'lark' : 'feishu',
                   })
                   setFeedback({ kind: 'ok', text: `凭证有效：${res.botName || '已就绪'}` })
@@ -409,14 +495,19 @@ function RemoteTab({ value, disabled, setField, t, onFeishuState }) {
             h('button', {
               type: 'button',
               className: 'dsh-flow-btn dsh-flow-btn-primary',
-              disabled: disabled || busy === 'connect',
+              disabled: disabled || busy !== '',
               onClick: () => {
                 void runAction('connect', async () => {
+                  const effId = appIdDraft.trim() || feishuCfg.appId || ''
+                  const effSecret = appSecretDraft.trim()
+                  if (effId !== '' && effId !== feishuCfg.appId) setField(['feishu', 'appId'], effId)
                   setField(['feishu', 'enabled'], true)
                   const res = await apiCall('POST', '/api/dsh-flow/feishu/connect', {
-                    appId: feishuCfg.appId || '',
+                    appId: effId,
+                    ...(effSecret !== '' ? { appSecret: effSecret } : {}),
                     domain: feishuCfg.domain === 'lark' ? 'lark' : 'feishu',
                   })
+                  setAppSecretDraft('')
                   setFeedback({ kind: 'ok', text: `已连接 ${res.appId}` })
                   refreshFeishuStatus()
                 })
@@ -757,8 +848,18 @@ function RemoteTab({ value, disabled, setField, t, onFeishuState }) {
               value: String(mailCfg.port ?? 465),
               disabled,
               onCommit: (next) => {
-                const parsed = Number.parseInt(next, 10)
-                if (Number.isFinite(parsed) && parsed > 0 && parsed <= 65535) setField(['email', 'port'], parsed)
+                const clean = String(next ?? '').trim()
+                if (!/^\d+$/.test(clean)) {
+                  setFeedback({ kind: 'error', text: 'SMTP 端口必须为 1–65535 的整数' })
+                  return false
+                }
+                const parsed = Number(clean)
+                if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > 65535) {
+                  setFeedback({ kind: 'error', text: 'SMTP 端口超出 1–65535 范围' })
+                  return false
+                }
+                setField(['email', 'port'], parsed)
+                return true
               },
             })),
           h(SettingRow, { title: t('notify.security') },

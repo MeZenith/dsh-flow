@@ -9,11 +9,14 @@ function PromptsTab({
   const [libTab, setLibTab] = useState('base')
   const [rosterOpen, setRosterOpen] = useState(false)
   const [rosterDraft, setRosterDraft] = useState('')
+  const [rosterDirty, setRosterDirty] = useState(false)
   const [baseDraft, setBaseDraft] = useState('')
   const [expandedSets, setExpandedSets] = useState(() => new Set())
   const [expandedAgents, setExpandedAgents] = useState({})
   const [agentDrafts, setAgentDrafts] = useState({})
   const [dirtyAgents, setDirtyAgents] = useState(() => new Set())
+  const dirtyAgentsRef = useRef(dirtyAgents)
+  dirtyAgentsRef.current = dirtyAgents
   const [creating, setCreating] = useState(false)
   const [newAgentId, setNewAgentId] = useState('')
   const [newAgentSummary, setNewAgentSummary] = useState('')
@@ -31,20 +34,26 @@ function PromptsTab({
     setBaseDraft(fromFile !== '' ? fromFile : (promptData?.base?.content ?? ''))
   }, [value?.baseRules, promptData])
 
+  // P2-3 修复：拆分为两个独立 effect，编辑子代理时绝不再冲掉未保存的花名册草稿。
+  useEffect(() => {
+    if (promptData === null || rosterDirty) return
+    setRosterDraft(promptData.roster?.content ?? '')
+  }, [promptData?.roster?.content, rosterDirty])
+
   useEffect(() => {
     if (promptData === null) return
-    setRosterDraft(promptData.roster?.content ?? '')
     const list = Array.isArray(promptData.subagents) ? promptData.subagents : []
+    const dirty = dirtyAgentsRef.current
     setAgentDrafts((prev) => {
       const next = {}
       for (const item of list) {
-        next[item.id] = dirtyAgents.has(item.id) && typeof prev[item.id] === 'string'
+        next[item.id] = dirty.has(item.id) && typeof prev[item.id] === 'string'
           ? prev[item.id]
           : (item.content ?? '')
       }
       return next
     })
-  }, [promptData, dirtyAgents])
+  }, [promptData])
 
   useEffect(() => {
     if (confirmDeleteId === '') return undefined
@@ -119,6 +128,7 @@ function PromptsTab({
             const payload = await apiCall('POST', '/api/dsh-flow/prompts/update')
             const result = payload.result ?? {}
             setDirtyAgents(new Set())
+            setRosterDirty(false)
             setFeedback({
               kind: result.ok === false ? 'error' : 'ok',
               text: t('lib.updateDone')
@@ -406,7 +416,8 @@ function PromptsTab({
     h(DisclosureGroup, {
       title: t('lib.rosterTitle'),
       summary: promptData?.roster?.hasCustom === true ? t('common.custom') : t('common.builtin'),
-      defaultOpen: rosterOpen,
+      open: rosterOpen,
+      onToggle: setRosterOpen,
     },
     h('div', { className: 'dsh-flow-row-block' },
       h(TextField, {
@@ -414,8 +425,8 @@ function PromptsTab({
         multiline: true,
         rows: 10,
         disabled,
-        onDraftChange: setRosterDraft,
-        onCommit: setRosterDraft,
+        onDraftChange: (next) => { setRosterDirty(true); setRosterDraft(next) },
+        onCommit: (next) => { setRosterDraft(next) },
       }),
       h('div', { className: 'dsh-flow-row', style: { justifyContent: 'flex-end' } },
         h('button', {
@@ -425,6 +436,7 @@ function PromptsTab({
           onClick: () => {
             void runBusy('roster', async () => {
               await apiCall('DELETE', '/api/dsh-flow/roster')
+              setRosterDirty(false)
               setFeedback({ kind: 'ok', text: t('lib.reset') })
               refreshPrompts()
             })
@@ -437,6 +449,7 @@ function PromptsTab({
           onClick: () => {
             void runBusy('roster', async () => {
               await apiCall('PUT', '/api/dsh-flow/roster', { content: rosterDraft })
+              setRosterDirty(false)
               setFeedback({ kind: 'ok', text: t('lib.saved') })
               setRosterOpen(true)
               refreshPrompts()
