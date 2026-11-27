@@ -141,9 +141,12 @@ export function createGateTool({
     })
     const emailResult = await sendGateEmail(email, { project, markdown, attachments })
     const digestChars = Number(config?.gate?.imDigestChars)
+    // P1-6 修复：当 RemoteHub 将直接推送飞书互动门禁卡片时，跳过 im.send 里的直连飞书摘要卡，避免双卡刷屏。
+    const skipFeishu = remoteHub !== undefined && config?.feishu?.pushOnGate !== false
     const imResult = await sendIm(im, {
       title: 'Flow 阶段门禁待拍板',
       sessionId: ticket.sessionId,
+      skipFeishu,
       markdown: formatImGate(ticket, {
         digestChars: Number.isFinite(digestChars) && digestChars > 0 ? Math.floor(digestChars) : 200,
         docs: docIds,
@@ -210,9 +213,11 @@ export function createGateTool({
       attachments: attachment === undefined ? [] : [attachment],
     })
     const digestChars = Number(config?.gate?.imDigestChars)
+    const skipFeishu = remoteHub !== undefined && config?.feishu?.pushOnGate !== false
     const imResult = await sendIm(im, {
       title: 'Flow 写文档授权（含草稿）',
       sessionId: ticket.sessionId,
+      skipFeishu,
       markdown: formatImGate(ticket, {
         digestChars: Number.isFinite(digestChars) && digestChars > 0 ? Math.floor(digestChars) : 200,
         docs: [],
@@ -449,12 +454,14 @@ export function createGateTool({
           limitBytes: Number.isFinite(limit) && limit > 0 ? limit : 2 * 1024 * 1024,
         })
         delivered.attachments = gathered.attachments
-        // 即使没有文档附件，如果用户配了 IM/飞书，也确保远程能即时收到门禁提醒！
+        // 即使没有文档附件，如果用户配了旧 IM/Webhook，也确保远程能收到门禁提醒（直连飞书走下方互动卡片）。
         if (config?.notify?.gate !== 'off') {
           const digestChars = Number(config?.gate?.imDigestChars)
+          const skipFeishu = remoteHub !== undefined && config?.feishu?.pushOnGate !== false
           delivered.im = await sendIm(im, {
             title: 'Flow 阶段门禁待拍板',
             sessionId: ticket.sessionId,
+            skipFeishu,
             markdown: formatImGate(ticket, {
               digestChars: Number.isFinite(digestChars) && digestChars > 0 ? Math.floor(digestChars) : 200,
               docs: docIds,

@@ -11,8 +11,8 @@ import { outputOf, projectNameOf, rootGuard } from './common.js'
 
 export const QA_HANDOFF_TOOL = 'flow_qa_handoff'
 
-export function createQaHandoffTool({ getConfig, notifier, remoteHub, stateStore }) {
-  const rework = createReworkTracker({ stateStore })
+export function createQaHandoffTool({ getConfig, notifier, remoteHub, stateStore, reworkTracker }) {
+  const rework = reworkTracker ?? createReworkTracker({ stateStore })
 
   return {
     name: QA_HANDOFF_TOOL,

@@ -29,9 +29,9 @@ export {
 export const TOOL_INTERNALS = Object.freeze({ projectNameOf, docIdsOf, docFileName, docsNote })
 
 export function createFlowTools({
-  ctx, getConfig, switchMode, logger, getUserQuestions, notifier, im, email, tickets, uiSkills, remoteHub, stateStore,
+  ctx, getConfig, switchMode, logger, getUserQuestions, notifier, im, email, tickets, uiSkills, remoteHub, stateStore, dispatchStore: externalDispatchStore, reworkTracker,
 }) {
-  const dispatchStore = createDispatchStore({ stateStore })
+  const dispatchStore = externalDispatchStore ?? createDispatchStore({ stateStore })
 
   return [
     createRouteTool({ ctx, getConfig, switchMode, getUserQuestions, stateStore }),
@@ -39,6 +39,6 @@ export function createFlowTools({
     ...createDocsTools({ getConfig, tickets, email, im, remoteHub, stateStore }),
     createUiSkillTool({ uiSkills }),
     createDispatchTool({ ctx, dispatchStore }),
-    createQaHandoffTool({ getConfig, notifier, remoteHub, stateStore }),
+    createQaHandoffTool({ getConfig, notifier, remoteHub, stateStore, reworkTracker }),
   ]
 }

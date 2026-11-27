@@ -26,7 +26,7 @@ const MAX_TRACKED_CARDS = 200
  *   diag?: (message: string) => void,
  * }} deps
  */
-export function createFeishuClient({ onMessage, onCardAction, logger, diag = () => {} }) {
+export function createFeishuClient({ onMessage, onCardAction, onDisconnected, logger, diag = () => {} }) {
   let apiClient = null
   let wsClient = null
   let connectionState = 'disconnected' // disconnected | connecting | connected | error
@@ -34,6 +34,10 @@ export function createFeishuClient({ onMessage, onCardAction, logger, diag = () 
   let connectedAt = 0
   let currentAppId = ''
   let currentDomain = 'feishu'
+  /** 连接代数令牌（P1-5 修复：防止并发 connect 产生僵尸双 WebSocket）。 */
+  let connectSeq = 0
+  /** 本连接周期内若明确缺少 cardkit:card:write 权限，跳过重复失败请求。 */
+  let cardkitDenied = false
 
   /** 有界事件去重表 */
   const seenEvents = new Set()
@@ -41,6 +45,27 @@ export function createFeishuClient({ onMessage, onCardAction, logger, diag = () 
   const ticketCards = new Map()
   /** brakeKey/sessionId → { messageId, chatId } */
   const brakeCards = new Map()
+
+  async function closeWsInstance(instance) {
+    if (!instance) return
+    try {
+      if (typeof instance.close === 'function') await instance.close({ force: true })
+      else if (typeof instance.stop === 'function') await instance.stop()
+    } catch { /* 忽略关闭异常 */ }
+  }
+
+  function effectiveState() {
+    if (wsClient !== null && typeof wsClient.getConnectionStatus === 'function') {
+      try {
+        const raw = String(wsClient.getConnectionStatus() ?? '').toLowerCase()
+        if (raw === 'connected' || raw === 'open' || raw === 'ready') return 'connected'
+        if (raw === 'connecting' || raw === 'reconnecting') return 'connecting'
+        if (raw === 'error' || raw === 'failed') return 'error'
+        if (raw === 'disconnected' || raw === 'closed') return 'disconnected'
+      } catch { /* 回落内部状态 */ }
+    }
+    return connectionState
+  }
 
   function markEventSeen(eventId) {
     if (typeof eventId !== 'string' || eventId === '') return false
@@ -72,9 +97,20 @@ export function createFeishuClient({ onMessage, onCardAction, logger, diag = () 
       return { ok: false, reason: lastError }
     }
 
-    await disconnect()
+    const seq = ++connectSeq
+    cardkitDenied = false
+
+    if (wsClient !== null) {
+      const prevWs = wsClient
+      wsClient = null
+      apiClient = null
+      connectedAt = 0
+      await closeWsInstance(prevWs)
+      if (seq !== connectSeq) return { ok: false, reason: '连接请求已被更新的连接替代' }
+    }
 
     const loaded = await loadFeishuSdk()
+    if (seq !== connectSeq) return { ok: false, reason: '连接请求已被更新的连接替代' }
     if (!loaded.ok) {
       connectionState = 'error'
       lastError = loaded.reason
@@ -93,8 +129,9 @@ export function createFeishuClient({ onMessage, onCardAction, logger, diag = () 
     connectionState = 'connecting'
     lastError = ''
 
+    let localWs = null
     try {
-      apiClient = new lark.Client({
+      const localApi = new lark.Client({
         appId: cleanId,
         appSecret: cleanSecret,
         domain: sdkDomain,
@@ -126,14 +163,50 @@ export function createFeishuClient({ onMessage, onCardAction, logger, diag = () 
         },
       })
 
-      wsClient = new lark.WSClient({
+      // P1-5 修复：显式开启 pingTimeout 看门狗与生命周期回调，修复休眠唤醒/闪断后的假在线问题。
+      localWs = new lark.WSClient({
         appId: cleanId,
         appSecret: cleanSecret,
         domain: sdkDomain,
         loggerLevel: lark.LoggerLevel?.warn ?? 3,
+        handshakeTimeoutMs: 15_000,
+        wsConfig: { pingTimeout: 10 },
+        onReady: () => {
+          if (seq !== connectSeq) return
+          connectionState = 'connected'
+          connectedAt = Date.now()
+          lastError = ''
+        },
+        onReconnecting: () => {
+          if (seq !== connectSeq) return
+          connectionState = 'connecting'
+          diag(`feishu ws reconnecting appId=${cleanId}`)
+        },
+        onReconnected: () => {
+          if (seq !== connectSeq) return
+          connectionState = 'connected'
+          lastError = ''
+          diag(`feishu ws reconnected appId=${cleanId}`)
+          logger?.info?.(`flow: 飞书 WebSocket 长连接已自动恢复（${cleanId}）`)
+        },
+        onError: (err) => {
+          if (seq !== connectSeq) return
+          connectionState = 'error'
+          lastError = err instanceof Error ? err.message : String(err ?? 'WebSocket 异常')
+          diag(`feishu ws error=${lastError}`)
+          logger?.warn?.(`flow: 飞书 WebSocket 长连接异常断开 → ${lastError}`)
+          try { onDisconnected?.(lastError) } catch { /* 忽略 */ }
+        },
       })
 
-      await wsClient.start({ eventDispatcher: dispatcher })
+      await localWs.start({ eventDispatcher: dispatcher })
+      if (seq !== connectSeq) {
+        await closeWsInstance(localWs)
+        return { ok: false, reason: '连接请求已被更新的连接替代' }
+      }
+
+      wsClient = localWs
+      apiClient = localApi
       connectionState = 'connected'
       connectedAt = Date.now()
       lastError = ''
@@ -141,26 +214,27 @@ export function createFeishuClient({ onMessage, onCardAction, logger, diag = () 
       logger?.info?.(`flow: 飞书直连 WebSocket 长连接已建立（${cleanId}）`)
       return { ok: true, appId: cleanId, domain: currentDomain }
     } catch (error) {
+      await closeWsInstance(localWs)
+      if (seq !== connectSeq) return { ok: false, reason: '连接请求已被更新的连接替代' }
       connectionState = 'error'
       lastError = error instanceof Error ? error.message : String(error)
       logger?.warn?.(`flow: 飞书长连接启动失败 → ${lastError}`)
-      await disconnect()
-      connectionState = 'error'
+      wsClient = null
+      apiClient = null
+      connectedAt = 0
       return { ok: false, reason: lastError }
     }
   }
 
   async function disconnect() {
-    if (wsClient !== null) {
-      try {
-        if (typeof wsClient.close === 'function') await wsClient.close()
-        else if (typeof wsClient.stop === 'function') await wsClient.stop()
-      } catch { /* 忽略关闭异常 */ }
-      wsClient = null
-    }
+    connectSeq += 1
+    cardkitDenied = false
+    const prevWs = wsClient
+    wsClient = null
     apiClient = null
     connectionState = 'disconnected'
     connectedAt = 0
+    await closeWsInstance(prevWs)
   }
 
   /** 发送文本消息到 chat_id。 */
@@ -230,8 +304,8 @@ export function createFeishuClient({ onMessage, onCardAction, logger, diag = () 
 
   /** 创建并发送飞书 CardKit 原生流式卡片（无权限或 SDK 不支持时返回 ok: false 由上层平滑降级）。 */
   async function createStreamingCard(chatId, card, { replyToMessageId, receiveIdType = 'chat_id' } = {}) {
-    if (apiClient === null || typeof apiClient?.cardkit?.v1?.card?.create !== 'function') {
-      return { ok: false, reason: 'cardkit-unavailable' }
+    if (cardkitDenied || apiClient === null || typeof apiClient?.cardkit?.v1?.card?.create !== 'function') {
+      return { ok: false, reason: cardkitDenied ? 'cardkit-permission-denied' : 'cardkit-unavailable' }
     }
     try {
       const created = await apiClient.cardkit.v1.card.create({
@@ -241,6 +315,10 @@ export function createFeishuClient({ onMessage, onCardAction, logger, diag = () 
         },
       })
       if (created?.code !== undefined && created.code !== 0) {
+        if (created.code === 99991672 || created.code === 99991640) {
+          cardkitDenied = true
+          diag(`feishu cardkit permission missing (code=${created.code}); fallback to patchCard for current session`)
+        }
         return { ok: false, reason: `code=${created.code} ${created.msg ?? ''}` }
       }
       const cardId = String(created?.data?.card_id ?? '').trim()
@@ -265,7 +343,12 @@ export function createFeishuClient({ onMessage, onCardAction, logger, diag = () 
         messageId: String(sent?.data?.message_id ?? sent?.message_id ?? ''),
       }
     } catch (error) {
-      return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+      const msg = error instanceof Error ? error.message : String(error)
+      if (/99991672|99991640/.test(msg)) {
+        cardkitDenied = true
+        diag(`feishu cardkit permission missing (${msg}); fallback to patchCard for current session`)
+      }
+      return { ok: false, reason: msg }
     }
   }
 
@@ -343,16 +426,21 @@ export function createFeishuClient({ onMessage, onCardAction, logger, diag = () 
     getApiClient: () => apiClient,
     trackTicketCard: (ticketId, info) => rememberCard(ticketCards, String(ticketId), info),
     getTicketCard: (ticketId) => ticketCards.get(String(ticketId)),
+    clearTicketCard: (ticketId) => ticketCards.delete(String(ticketId)),
     trackBrakeCard: (sessionId, info) => rememberCard(brakeCards, String(sessionId), info),
     getBrakeCard: (sessionId) => brakeCards.get(String(sessionId)),
-    isReady: () => connectionState === 'connected' && apiClient !== null,
-    status: () => ({
-      state: connectionState,
-      connected: connectionState === 'connected',
-      appId: currentAppId,
-      domain: currentDomain,
-      connectedAt,
-      lastError,
-    }),
+    clearBrakeCard: (sessionId) => brakeCards.delete(String(sessionId)),
+    isReady: () => effectiveState() === 'connected' && apiClient !== null,
+    status: () => {
+      const state = effectiveState()
+      return {
+        state,
+        connected: state === 'connected',
+        appId: currentAppId,
+        domain: currentDomain,
+        connectedAt,
+        lastError,
+      }
+    },
   }
 }

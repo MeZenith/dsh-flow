@@ -135,7 +135,7 @@ const en = {
 
   'feishu.secSecurity': 'Access',
   'feishu.allowedUsers': 'Allowed Users',
-  'feishu.allowedUsersPlaceholder': 'Send /id to bot · empty = any',
+  'feishu.allowedUsersPlaceholder': 'Send /id to bot · required (empty blocks all)',
   'feishu.defaultChatId': 'Default Chat',
   'feishu.defaultChatIdPlaceholder': 'Auto-captured on first message',
 

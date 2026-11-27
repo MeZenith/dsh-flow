@@ -11,6 +11,7 @@
  */
 import { Config, plainConfigOf } from './config/schema.js'
 import { MODE_OFF } from './config/constants.js'
+import { modeConfigOf } from './modes/registry.js'
 import { createDiagSink, markSinkReady } from './shared/diag.js'
 import { projectNameOfContext, projectNameOfCwd } from './shared/message.js'
 import { createFlowStateStore } from './shared/state-store.js'
@@ -18,6 +19,8 @@ import { createModeProjection, modeOfSession } from './modes/projection.js'
 import { createCompactBridge } from './modes/compact-bridge.js'
 import { applyModeSwitch } from './modes/switcher.js'
 import { createUiSkillProbe } from './workflow/ui-skill.js'
+import { createDispatchStore } from './workflow/dispatch.js'
+import { createReworkTracker } from './workflow/qa-handoff.js'
 import { createPromptStore } from './prompts/store.js'
 import { DEFAULT_SOURCE_URL, formatUpdateResult, updatePrompts } from './prompts/updater.js'
 import { attachAgentDocsContext, attachAgentModeContext, attachAgentSpecContext, installBaseSection } from './prompts/bridge.js'
@@ -109,6 +112,7 @@ export function apply(ctx, config) {
     const dshImHolder = holdOptional(scoped, 'dshIm')
     const credentialsHolder = holdOptional(scoped, 'credentials')
     const sessionControllerHolder = holdOptional(scoped, 'sessionController')
+    const workspaceRegistryHolder = holdOptional(scoped, 'workspaceRegistry')
     const workspaceControllerHolder = holdOptional(scoped, 'workspaceController')
 
     // 3. 模式切换事务（命令与工具共用）
@@ -121,14 +125,18 @@ export function apply(ctx, config) {
       logger,
     })
 
-    /** B-03 修复：通过执行 `/flow <modeId>` 让会话日志写入 `command/run`，从而同步 `flowMode` 投影与前端芯片。 */
+    /** B-03 / P0-1 修复：按真实 DSH 宿主签名 `execute(agent, line, attachments, signal)` 执行 `/flow <modeId>`。 */
     const syncModeCommand = async (agent, modeId) => {
       if (typeof scoped?.commands?.execute !== 'function') return { ok: false }
       try {
         const signal = new AbortController().signal
-        const res = await scoped.commands.execute(agent, '/flow', [modeId], signal)
-        if (res?.kind === 'error') return { ok: false }
-        return { ok: true, label: modeId, notes: [] }
+        const res = await scoped.commands.execute(agent, `/flow ${modeId}`, [], signal)
+        const kind = res?.result?.kind ?? res?.kind
+        if (!res || kind === 'error') {
+          return { ok: false, reason: res?.result?.text ?? res?.text }
+        }
+        const label = modeId === MODE_OFF ? '普通模式' : modeConfigOf(getConfig(), modeId).label
+        return { ok: true, label, notes: [] }
       } catch {
         return { ok: false }
       }
@@ -148,10 +156,12 @@ export function apply(ctx, config) {
       }
     }
 
-    // 4. 压缩桥 + 活跃度 + 通知渠道
+    // 4. 压缩桥 + 活跃度 + 通知渠道（延迟闭包读取 breaker，避免熔断期间自动压缩撞车）
+    let breaker
     const bridge = createCompactBridge({
       ctx: scoped,
       getHostCompaction: () => compactionHolder.get(),
+      isLocked: (agent) => breaker?.isLocked?.(agent) === true,
       logger,
     })
     scoped.effect(() => () => bridge.dispose(), 'flow: compact bridge')
@@ -183,7 +193,7 @@ export function apply(ctx, config) {
     let remoteHub
 
     // 5. 熔断器 + 门禁票据 + 结算器 + 遥控路由
-    const breaker = createCircuitBreaker({
+    breaker = createCircuitBreaker({
       ctx: scoped,
       getConfig,
       notifier,
@@ -202,6 +212,31 @@ export function apply(ctx, config) {
       diag,
       onEvent: (type, ticket) => {
         if (type === 'expired') remoteHub?.emit?.('gate:expired', { ticket })
+      },
+      // P1-10 修复：重启恢复的 open 票据到达超时时间后同样发送一次催办。
+      onRecoverOpen: async (ticket) => {
+        const cfg = getConfig()
+        const strategy = ['im-first', 'email-first', 'both', 'off'].includes(cfg?.gate?.escalate)
+          ? cfg.gate.escalate
+          : 'both'
+        if (strategy === 'off') return
+        const targetAgent = resolveAgent(ticket.sessionId)
+        await notifier.sendNow('gate-timeout', {
+          title: `Flow 门禁超时 #${ticket.id}`,
+          project: ticket.project,
+          markdown: [
+            `## Flow 门禁超时 #${ticket.id}`,
+            '',
+            `- 项目：${ticket.project}`,
+            `- 阶段：${ticket.fromStage} → ${ticket.nextMode}`,
+            `- 结论：${String(ticket.summary ?? '').slice(0, 800)}`,
+            '',
+            '**已严格停手，等你决定**。桌面回 `1/2/3`、飞书点卡片按钮或回复 `#票据号 1/2/3 [意见]` 即可。',
+          ].join('\n'),
+          agent: targetAgent,
+          session: targetAgent?.session,
+          strategy,
+        })
       },
     })
     scoped.effect(() => () => tickets.dispose(), 'flow: gate tickets')
@@ -244,6 +279,7 @@ export function apply(ctx, config) {
       breaker,
       stateStore,
       getSessionController: () => sessionControllerHolder.get(),
+      getWorkspaceRegistry: () => workspaceRegistryHolder.get(),
       getWorkspaceController: () => workspaceControllerHolder.get(),
       logger,
     })
@@ -372,7 +408,7 @@ export function apply(ctx, config) {
         'flow: spec context',
       )
       const disposeDocs = agent.ctx.effect(
-        () => attachAgentDocsContext(agent.ctx, { agent, getConfig, stateStore }),
+        () => attachAgentDocsContext(agent.ctx, { agent, getConfig, getMode, stateStore }),
         'flow: docs context',
       )
 
@@ -394,18 +430,24 @@ export function apply(ctx, config) {
       })
     }
 
+    const dispatchStore = createDispatchStore({ stateStore })
+    const reworkTracker = createReworkTracker({ stateStore })
+
     scoped.on('agent/created', ({ agent }) => { attach(agent) }, { prepend: true })
-    // M-12 修复：会话销毁时同步清理内存 Map，防止长运行累积泄漏。
+    // M-12 / P1-9 修复：会话销毁时全量回收内存 Map、等待压缩队列与子代理状态，杜绝长运行泄漏。
     scoped.on('agent/disposed', ({ agent }) => {
       const id = agent?.id
       if (id !== undefined && agentDisposers.has(id)) {
         try { agentDisposers.get(id)?.() } catch { /* 忽略 */ }
         agentDisposers.delete(id)
       }
+      bridge.forget(agent)
       const sid = String(agent?.session?.id ?? '')
       if (sid !== '') {
         activity.forget(sid)
         breaker.forget(sid)
+        dispatchStore.forget(sid)
+        reworkTracker.forget(sid)
         stateStore.forgetSession(sid)
         feishuCommander.forgetSession(sid)
       }
@@ -426,6 +468,8 @@ export function apply(ctx, config) {
       uiSkills,
       remoteHub,
       stateStore,
+      dispatchStore,
+      reworkTracker,
     })) {
       scoped.effect(
         () => scoped.tools.register(definition),
@@ -470,8 +514,8 @@ export function apply(ctx, config) {
       'flow: notice command',
     )
 
-    // 12. 本地回环 HTTP API（提示词管理 + 通知测试 + 飞书扫码与管理）
-    ctx.inject(['webServer'], (httpCtx) => {
+    // 12. 本地回环 HTTP API（挂在 scoped 下，重载时自动释放避免重复注册路由，P1-9 修复）
+    scoped.inject(['webServer'], (httpCtx) => {
       try {
         const api = createPromptApi({
           store: promptStore,
@@ -509,7 +553,9 @@ export function apply(ctx, config) {
     )
 
     return async () => {
+      const current = state.handle
       state.handle = null
+      try { await current?.dispose?.() } catch { /* 忽略 */ }
     }
   })
 

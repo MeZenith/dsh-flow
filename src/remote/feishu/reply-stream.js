@@ -32,20 +32,160 @@ export function extractAssistantText(content) {
     .trim()
 }
 
-/** 按段落/换行把超长 Markdown 切分成适合飞书单卡展示的片段。 */
+const FENCE_OPEN_RE = /^[ \t]{0,3}(`{3,}|~{3,})(.*)$/
+const TABLE_ROW_RE = /^\s*\|.*\|\s*$/
+const TABLE_SEP_RE = /^\s*\|[\s:|-]+\|\s*$/
+
+function parseFenceOpen(line) {
+  const m = FENCE_OPEN_RE.exec(line)
+  if (!m) return null
+  const marker = m[1]
+  const rest = m[2] ?? ''
+  if (marker[0] === '`' && rest.includes('`')) return null
+  return { char: marker[0], len: marker.length, header: line }
+}
+
+function isFenceClose(line, fence) {
+  if (!fence) return false
+  const trimmed = line.trim()
+  if (trimmed.length < fence.len) return false
+  for (let i = 0; i < trimmed.length; i += 1) {
+    if (trimmed[i] !== fence.char) return false
+  }
+  return true
+}
+
+function unclosedFenceOf(markdown) {
+  let fence = null
+  for (const line of String(markdown ?? '').split('\n')) {
+    if (!fence) {
+      const opened = parseFenceOpen(line)
+      if (opened) fence = opened
+    } else if (isFenceClose(line, fence)) {
+      fence = null
+    }
+  }
+  return fence
+}
+
+/**
+ * 状态感知 Markdown 分片器（P1-2 修复）：
+ * - 切分跨越围栏代码块（``` / ~~~）时，自动在上片闭合围栏、下片按原语言重开围栏；
+ * - 切分跨越 Markdown 表格时，自动在下一分片开头复写表头与分隔线；
+ * - 超长单行仍按字符上限安全切分。
+ */
 export function splitMarkdownChunks(text, limit = MAX_CARD_TEXT_CHARS) {
   const clean = String(text ?? '').trim()
-  if (clean.length <= limit) return clean === '' ? [] : [clean]
+  if (clean === '') return []
+  const maxLen = Math.max(120, Number(limit) || MAX_CARD_TEXT_CHARS)
+  if (clean.length <= maxLen) return [clean]
+
+  const lines = clean.split('\n')
   const chunks = []
-  let rest = clean
-  while (rest.length > limit) {
-    let cut = rest.lastIndexOf('\n\n', limit)
-    if (cut < limit * 0.45) cut = rest.lastIndexOf('\n', limit)
-    if (cut < limit * 0.45) cut = limit
-    chunks.push(rest.slice(0, cut).trimEnd())
-    rest = rest.slice(cut).trimStart()
+  let buf = []
+  let bufLen = 0
+  let fence = null
+  let tableHeader = null // [headerLine, sepLine]
+
+  const closingReserve = () => (fence ? fence.len + 1 : 0)
+
+  const flushChunk = ({ reopenFence = true, reopenTable = false } = {}) => {
+    if (buf.length === 0) return
+    const outLines = [...buf]
+    if (fence && reopenFence) {
+      outLines.push(fence.char.repeat(fence.len))
+    }
+    const piece = outLines.join('\n').trim()
+    if (piece !== '') chunks.push(piece)
+    buf = []
+    bufLen = 0
+    if (fence && reopenFence) {
+      buf.push(fence.header)
+      bufLen = fence.header.length
+    } else if (reopenTable && tableHeader) {
+      buf.push(tableHeader[0], tableHeader[1])
+      bufLen = tableHeader[0].length + 1 + tableHeader[1].length
+    }
   }
-  if (rest !== '') chunks.push(rest)
+
+  const pushLine = (line) => {
+    if (buf.length === 0) {
+      buf.push(line)
+      bufLen = line.length
+    } else {
+      buf.push(line)
+      bufLen += 1 + line.length
+    }
+  }
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]
+
+    // 表格起止识别（仅在代码块外生效）
+    if (!fence) {
+      if (!tableHeader && TABLE_ROW_RE.test(line) && i + 1 < lines.length && TABLE_SEP_RE.test(lines[i + 1]) && lines[i + 1].includes('-')) {
+        const headerBlockLen = line.length + 1 + lines[i + 1].length
+        if (buf.length > 0 && bufLen + 1 + headerBlockLen > maxLen) {
+          flushChunk({ reopenFence: false, reopenTable: false })
+        }
+        tableHeader = [line, lines[i + 1]]
+        pushLine(line)
+        pushLine(lines[i + 1])
+        i += 1
+        continue
+      }
+      if (tableHeader && !TABLE_ROW_RE.test(line)) {
+        tableHeader = null
+      }
+    }
+
+    const nextFenceState = (() => {
+      if (!fence) {
+        const opened = parseFenceOpen(line)
+        return opened ? { kind: 'open', fence: opened } : { kind: 'none' }
+      }
+      return isFenceClose(line, fence) ? { kind: 'close' } : { kind: 'inside' }
+    })()
+
+    const extraClose = nextFenceState.kind === 'close' ? 0 : closingReserve()
+    const projected = buf.length === 0 ? line.length : bufLen + 1 + line.length
+
+    if (projected + extraClose > maxLen) {
+      if (buf.length > 0) {
+        // 如果当前块里仅有表格表头而无数据行，先不拆分表头
+        const onlyTableHeader = !fence && tableHeader && buf.length <= 2
+        if (!onlyTableHeader) {
+          flushChunk({ reopenFence: fence !== null, reopenTable: !fence && tableHeader !== null })
+        }
+      }
+
+      // 单行本身超过上限时按字符安全切分
+      const safeCap = Math.max(40, maxLen - (buf.length > 0 ? bufLen + 1 : 0) - closingReserve())
+      if (line.length > safeCap && nextFenceState.kind !== 'open' && nextFenceState.kind !== 'close') {
+        let rest = line
+        while (rest.length > 0) {
+          const cap = Math.max(40, maxLen - (buf.length > 0 ? bufLen + 1 : 0) - closingReserve())
+          const part = rest.slice(0, cap)
+          rest = rest.slice(cap)
+          pushLine(part)
+          if (rest.length > 0) {
+            flushChunk({ reopenFence: fence !== null, reopenTable: !fence && tableHeader !== null })
+          }
+        }
+        continue
+      }
+    }
+
+    pushLine(line)
+    if (nextFenceState.kind === 'open') {
+      fence = nextFenceState.fence
+      tableHeader = null
+    } else if (nextFenceState.kind === 'close') {
+      fence = null
+    }
+  }
+
+  flushChunk({ reopenFence: fence !== null, reopenTable: false })
   return chunks
 }
 
@@ -127,10 +267,22 @@ export function createFeishuReplyStreamer({
   logger,
   diag = () => {},
 }) {
-  /** 活跃流式回复任务（按 sessionId 索引当前最新进行中的槽位；同时按 messageId 映射等待 claim 的队列）。 */
-  const activeBySession = new Map()
+  /**
+   * 多回合并发索引（修复 P0-3 单槽覆盖）：
+   * - `entriesByTurn`: `${sessionId}:${turn}` → 已绑定具体 turn 的活跃流式卡片；
+   * - `pendingByMessageId`: `inboxMessageId` → 等待 DSH `agent/inbox/claimed` 认领的卡片；
+   * - `unclaimedBySession`: `sessionId` → 未携带 inboxMessageId 的 FIFO 兜底队列；
+   * - `allEntries`: 全部存活卡片，便于超时回收与会话卸载清理。
+   */
+  const entriesByTurn = new Map()
   const pendingByMessageId = new Map()
+  const unclaimedBySession = new Map()
+  const allEntries = new Set()
   const streamMetaBySession = new Map()
+
+  function turnKey(sessionId, turn) {
+    return `${sessionId}:${turn}`
+  }
 
   function alias() {
     return getBotAlias?.() || DEFAULT_BOT_NAME
@@ -143,62 +295,146 @@ export function createFeishuReplyStreamer({
     }
   }
 
+  function removeUnclaimed(entry) {
+    const queue = unclaimedBySession.get(entry.sessionId)
+    if (!queue) return
+    const idx = queue.indexOf(entry)
+    if (idx !== -1) queue.splice(idx, 1)
+    if (queue.length === 0) unclaimedBySession.delete(entry.sessionId)
+  }
+
   function cleanup(entry) {
     clearTimer(entry)
-    if (entry.inboxMessageId) pendingByMessageId.delete(entry.inboxMessageId)
-    if (activeBySession.get(entry.sessionId) === entry) {
-      activeBySession.delete(entry.sessionId)
+    allEntries.delete(entry)
+    if (entry.inboxMessageId && pendingByMessageId.get(entry.inboxMessageId) === entry) {
+      pendingByMessageId.delete(entry.inboxMessageId)
+    }
+    removeUnclaimed(entry)
+    if (entry.turn !== null) {
+      const k = turnKey(entry.sessionId, entry.turn)
+      if (entriesByTurn.get(k) === entry) entriesByTurn.delete(k)
+    }
+  }
+
+  function bindTurn(entry, turn) {
+    if (!entry || entry.finalized || !Number.isSafeInteger(turn)) return
+    if (entry.turn === turn) return
+    if (entry.turn !== null) {
+      const oldKey = turnKey(entry.sessionId, entry.turn)
+      if (entriesByTurn.get(oldKey) === entry) entriesByTurn.delete(oldKey)
+    }
+    if (entry.inboxMessageId && pendingByMessageId.get(entry.inboxMessageId) === entry) {
+      pendingByMessageId.delete(entry.inboxMessageId)
+    }
+    removeUnclaimed(entry)
+    entry.turn = turn
+    entriesByTurn.set(turnKey(entry.sessionId, turn), entry)
+  }
+
+  function shiftUnclaimed(sessionId) {
+    const queue = unclaimedBySession.get(sessionId)
+    if (!queue || queue.length === 0) return undefined
+    while (queue.length > 0) {
+      const head = queue.shift()
+      if (queue.length === 0) unclaimedBySession.delete(sessionId)
+      if (head && !head.finalized) return head
+    }
+    return undefined
+  }
+
+  function findActiveForSession(sessionId, turn) {
+    if (Number.isSafeInteger(turn)) {
+      const exact = entriesByTurn.get(turnKey(sessionId, turn))
+      if (exact && !exact.finalized) return exact
+      // 仅对未指定 inboxMessageId 的兜底条目绑定 turn，绝不抢绑正在排队等待 onInboxClaimed 的飞书卡片！
+      const unclaimed = shiftUnclaimed(sessionId)
+      if (unclaimed) {
+        bindTurn(unclaimed, turn)
+        return unclaimed
+      }
+      return undefined
+    }
+    // 未提供 turn 时，仅在当前会话恰好只有 1 个已绑定条目时命中
+    let sole
+    for (const entry of entriesByTurn.values()) {
+      if (entry.sessionId !== sessionId || entry.finalized) continue
+      if (sole !== undefined) return undefined
+      sole = entry
+    }
+    if (sole !== undefined) return sole
+    const queue = unclaimedBySession.get(sessionId)
+    return queue?.find(e => !e.finalized)
+  }
+
+  function syncEntryMode(entry, mode) {
+    if (typeof mode === 'string' && mode !== '' && entry.mode !== mode) {
+      entry.mode = mode
     }
   }
 
   function previewMarkdown(entry) {
     const live = entry.acc.text
     if (live !== '') {
-      const clipped = live.length > MAX_CARD_TEXT_CHARS
-        ? `${live.slice(0, MAX_CARD_TEXT_CHARS - 24)}\n\n…（输出较长，完成后将完整呈现）`
-        : live
+      let clipped = live
+      if (live.length > MAX_CARD_TEXT_CHARS) {
+        const head = live.slice(0, MAX_CARD_TEXT_CHARS - 36)
+        const openFence = unclosedFenceOf(head)
+        const closeLine = openFence ? `\n${openFence.char.repeat(openFence.len)}` : ''
+        clipped = `${head}${closeLine}\n\n…（输出较长，完成后将完整呈现）`
+      }
       return entry.toolHint ? `${clipped}\n\n_${entry.toolHint}_` : clipped
     }
     return entry.toolHint || '⏳ 正在思考…'
   }
 
-  /** 将最新预览节流推给飞书（支持 CardKit 流式与 message.patch 两种通道）。 */
-  async function flushNow(entry) {
-    if (entry.finalized) return
-    await entry.readyPromise
-    if (entry.finalized) return
-    const md = previewMarkdown(entry)
-    if (md === entry.lastPushedText) return
-    entry.lastPushedText = md
+  /** 按卡片严格串行化更新任务，确保 CardKit `sequence` 单调递增且终态绝不被旧刷新倒灌覆盖（P1-1 修复）。 */
+  function enqueue(entry, task) {
+    const next = entry.queue.then(task, task)
+    entry.queue = next.catch(() => {})
+    return next
+  }
 
-    try {
-      if (entry.transport === 'cardkit' && entry.cardId) {
-        entry.sequence += 1
-        const res = await client.streamCardContent(entry.cardId, md, entry.sequence)
-        if (!res.ok) {
-          // CardKit 中途更新异常时安全回落 patchCard
-          if (entry.messageId) {
-            await client.patchCard(entry.messageId, buildStreamingReplyCard({
-              project: entry.project,
-              mode: entry.mode,
-              sessionId: entry.sessionId,
-              markdown: md,
-              botAlias: alias(),
-            }))
+  /** 将最新预览节流推给飞书（支持 CardKit 流式与 message.patch 两种通道）。 */
+  function flushNow(entry) {
+    if (entry.finalized) return Promise.resolve()
+    return enqueue(entry, async () => {
+      if (entry.finalized) return
+      await entry.readyPromise
+      if (entry.finalized) return
+      const md = previewMarkdown(entry)
+      if (md === entry.lastPushedText) return
+      entry.lastPushedText = md
+
+      try {
+        if (entry.transport === 'cardkit' && entry.cardId) {
+          entry.sequence += 1
+          const res = await client.streamCardContent(entry.cardId, md, entry.sequence)
+          if (entry.finalized) return
+          if (!res.ok) {
+            // CardKit 中途更新异常时安全回落 patchCard
+            if (entry.messageId) {
+              await client.patchCard(entry.messageId, buildStreamingReplyCard({
+                project: entry.project,
+                mode: entry.mode,
+                sessionId: entry.sessionId,
+                markdown: md,
+                botAlias: alias(),
+              }))
+            }
           }
+        } else if (entry.messageId) {
+          await client.patchCard(entry.messageId, buildStreamingReplyCard({
+            project: entry.project,
+            mode: entry.mode,
+            sessionId: entry.sessionId,
+            markdown: md,
+            botAlias: alias(),
+          }))
         }
-      } else if (entry.messageId) {
-        await client.patchCard(entry.messageId, buildStreamingReplyCard({
-          project: entry.project,
-          mode: entry.mode,
-          sessionId: entry.sessionId,
-          markdown: md,
-          botAlias: alias(),
-        }))
+      } catch (error) {
+        logger?.warn?.(`flow: 飞书流式刷新异常 → ${error instanceof Error ? error.message : String(error)}`)
       }
-    } catch (error) {
-      logger?.warn?.(`flow: 飞书流式刷新异常 → ${error instanceof Error ? error.message : String(error)}`)
-    }
+    })
   }
 
   function scheduleFlush(entry) {
@@ -215,10 +451,14 @@ export function createFeishuReplyStreamer({
   }
 
   /** 启动一张流式回复卡片（发送初始「思考中」卡片）。 */
-  function createEntry({ sessionId, chatId, replyToMessageId, project, mode, inboxMessageId = '', origin = 'feishu' }) {
-    // 若同一会话有旧的滞留未结束卡片，先收口释放定时器
-    const prev = activeBySession.get(sessionId)
-    if (prev && Date.now() - prev.createdAt > STALE_TURN_MS) cleanup(prev)
+  function createEntry({ sessionId, chatId, replyToMessageId, project, mode, inboxMessageId = '', origin = 'feishu', turn = null }) {
+    // 清理同一会话超龄滞留的死卡片，不影响正在并发运行的其他回合
+    const now = Date.now()
+    for (const prev of [...allEntries]) {
+      if (prev.sessionId === sessionId && now - prev.createdAt > STALE_TURN_MS) {
+        cleanup(prev)
+      }
+    }
 
     const entry = {
       sessionId,
@@ -239,7 +479,8 @@ export function createFeishuReplyStreamer({
       lastFlushAt: 0,
       timer: null,
       finalized: false,
-      createdAt: Date.now(),
+      createdAt: now,
+      queue: Promise.resolve(),
       readyPromise: null,
     }
 
@@ -284,8 +525,16 @@ export function createFeishuReplyStreamer({
       logger?.warn?.(`flow: 飞书创建回复卡片失败 → ${error instanceof Error ? error.message : String(error)}`)
     })
 
-    activeBySession.set(sessionId, entry)
-    if (inboxMessageId) pendingByMessageId.set(inboxMessageId, entry)
+    allEntries.add(entry)
+    if (Number.isSafeInteger(turn)) {
+      bindTurn(entry, turn)
+    } else if (inboxMessageId) {
+      pendingByMessageId.set(inboxMessageId, entry)
+    } else {
+      const queue = unclaimedBySession.get(sessionId) ?? []
+      queue.push(entry)
+      unclaimedBySession.set(sessionId, queue)
+    }
     return entry
   }
 
@@ -295,84 +544,99 @@ export function createFeishuReplyStreamer({
     return createEntry({ sessionId, chatId, replyToMessageId, project, mode, inboxMessageId, origin: 'feishu' })
   }
 
-  /** 将流式回复卡片收口为最终定稿卡片（含超长分片续发）。 */
-  async function finalizeEntry(entry, reasonKind = 'completed') {
-    if (!entry || entry.finalized) return
+  /** 将流式回复卡片收口为最终定稿卡片（串行排在所有在途 flush 之后，含超长分片续发）。 */
+  function finalizeEntry(entry, reasonKind = 'completed') {
+    if (!entry || entry.finalized) return Promise.resolve()
     entry.finalized = true
     cleanup(entry)
-    await entry.readyPromise
 
-    const rawText = entry.acc.text.trim()
-    const isAborted = reasonKind === 'cancelled' || reasonKind === 'aborted' || reasonKind === 'abort'
-    const isError = reasonKind === 'error' || reasonKind === 'failed'
-    const finalText = rawText !== ''
-      ? rawText
-      : (isAborted ? '⏹ 已停止本次回答。' : isError ? '⚠️ 本轮执行异常中断，请在桌面端查看详情。' : '✅ 本轮执行已完成。')
+    return enqueue(entry, async () => {
+      await entry.readyPromise
 
-    const chunks = splitMarkdownChunks(finalText, MAX_CARD_TEXT_CHARS)
-    const firstChunk = chunks[0] ?? finalText
-    const finalCard = buildFinalReplyCard({
-      project: entry.project,
-      mode: entry.mode,
-      sessionId: entry.sessionId,
-      markdown: firstChunk,
-      status: isAborted ? 'aborted' : isError ? 'error' : 'completed',
-      partInfo: chunks.length > 1 ? `1/${chunks.length}` : '',
-      botAlias: alias(),
-    })
+      const rawText = entry.acc.text.trim()
+      const isAborted = reasonKind === 'cancelled' || reasonKind === 'aborted' || reasonKind === 'abort'
+      const isError = reasonKind === 'error' || reasonKind === 'failed'
+      const finalText = rawText !== ''
+        ? rawText
+        : (isAborted ? '⏹ 已停止本次回答。' : isError ? '⚠️ 本轮执行异常中断，请在桌面端查看详情。' : '✅ 本轮执行已完成。')
 
-    try {
-      if (entry.transport === 'cardkit' && entry.cardId && typeof client.finishStreamingCard === 'function') {
-        entry.sequence += 1
-        const done = await client.finishStreamingCard(entry.cardId, finalCard, entry.sequence)
-        if (!done.ok && entry.messageId) {
+      const chunks = splitMarkdownChunks(finalText, MAX_CARD_TEXT_CHARS)
+      const firstChunk = chunks[0] ?? finalText
+      const finalCard = buildFinalReplyCard({
+        project: entry.project,
+        mode: entry.mode,
+        sessionId: entry.sessionId,
+        markdown: firstChunk,
+        status: isAborted ? 'aborted' : isError ? 'error' : 'completed',
+        partInfo: chunks.length > 1 ? `1/${chunks.length}` : '',
+        botAlias: alias(),
+      })
+
+      try {
+        if (entry.transport === 'cardkit' && entry.cardId && typeof client.finishStreamingCard === 'function') {
+          entry.sequence += 1
+          const done = await client.finishStreamingCard(entry.cardId, finalCard, entry.sequence)
+          if (!done.ok && entry.messageId) {
+            await client.patchCard(entry.messageId, finalCard)
+          }
+        } else if (entry.messageId) {
           await client.patchCard(entry.messageId, finalCard)
+        } else if (entry.chatId) {
+          await client.sendCard(entry.chatId, finalCard, { replyToMessageId: entry.replyToMessageId })
         }
-      } else if (entry.messageId) {
-        await client.patchCard(entry.messageId, finalCard)
-      } else if (entry.chatId) {
-        await client.sendCard(entry.chatId, finalCard, { replyToMessageId: entry.replyToMessageId })
-      }
 
-      // 超长回复后续分片
-      for (let i = 1; i < chunks.length; i += 1) {
-        const contCard = buildFinalReplyCard({
-          project: entry.project,
-          mode: entry.mode,
-          sessionId: entry.sessionId,
-          markdown: chunks[i],
-          status: 'completed',
-          partInfo: `${i + 1}/${chunks.length}`,
-          showActions: i === chunks.length - 1,
-          botAlias: alias(),
-        })
-        await client.sendCard(entry.chatId, contCard)
+        // 超长回复后续分片
+        for (let i = 1; i < chunks.length; i += 1) {
+          const contCard = buildFinalReplyCard({
+            project: entry.project,
+            mode: entry.mode,
+            sessionId: entry.sessionId,
+            markdown: chunks[i],
+            status: 'completed',
+            partInfo: `${i + 1}/${chunks.length}`,
+            showActions: i === chunks.length - 1,
+            botAlias: alias(),
+          })
+          await client.sendCard(entry.chatId, contCard)
+        }
+      } catch (error) {
+        logger?.warn?.(`flow: 飞书定稿回复卡片失败 → ${error instanceof Error ? error.message : String(error)}`)
       }
-    } catch (error) {
-      logger?.warn?.(`flow: 飞书定稿回复卡片失败 → ${error instanceof Error ? error.message : String(error)}`)
-    }
+    })
   }
 
   /* ---- 接收 DSH 宿主事件 ---- */
 
   function onInboxClaimed({ sessionId, messageId, turn }) {
     if (!sessionId) return
-    const entry = (messageId && pendingByMessageId.get(messageId)) || activeBySession.get(sessionId)
-    if (!entry) return
-    if (messageId) pendingByMessageId.delete(messageId)
-    if (Number.isSafeInteger(turn)) entry.turn = turn
+    const cleanMsgId = String(messageId ?? '').trim()
+    let entry
+    if (cleanMsgId !== '') {
+      entry = pendingByMessageId.get(cleanMsgId)
+      if (!entry) return
+    } else {
+      entry = shiftUnclaimed(sessionId)
+      if (!entry) return
+    }
+    if (entry.finalized) return
+    if (Number.isSafeInteger(turn)) bindTurn(entry, turn)
   }
 
   function ensureEntryForDesktopSync({ sessionId, project, mode, turn }) {
     if (getConfig?.()?.feishu?.syncDesktopReplies !== true) return undefined
     if (!client.isReady()) return undefined
-    const existing = activeBySession.get(sessionId)
+    const existing = findActiveForSession(sessionId, turn)
     if (existing) return existing
     const chatId = resolveTargetChatId?.(sessionId) || ''
     if (chatId === '') return undefined
-    const created = createEntry({ sessionId, chatId, project, mode, origin: 'desktop' })
-    if (Number.isSafeInteger(turn)) created.turn = turn
-    return created
+    return createEntry({
+      sessionId,
+      chatId,
+      project,
+      mode,
+      origin: 'desktop',
+      turn: Number.isSafeInteger(turn) ? turn : null,
+    })
   }
 
   function onAssistantStream({ sessionId, frame, project, mode }) {
@@ -390,13 +654,14 @@ export function createFeishuReplyStreamer({
     const turn = meta?.turn ?? frame.turn
     const step = meta?.step ?? frame.step ?? 0
 
-    let entry = activeBySession.get(sessionId)
+    let entry = findActiveForSession(sessionId, turn)
     if (!entry) {
       entry = ensureEntryForDesktopSync({ sessionId, project, mode, turn })
     }
     if (!entry || entry.finalized) return
     if (entry.turn !== null && Number.isSafeInteger(turn) && entry.turn !== turn) return
-    if (entry.turn === null && Number.isSafeInteger(turn)) entry.turn = turn
+    if (entry.turn === null && Number.isSafeInteger(turn)) bindTurn(entry, turn)
+    syncEntryMode(entry, mode)
 
     const chunk = frame.chunk
     if (chunk?.type === 'text-delta' && typeof chunk.text === 'string' && chunk.text !== '') {
@@ -412,20 +677,24 @@ export function createFeishuReplyStreamer({
     const turn = event.data?.turn
 
     if (type === 'turn/start') {
-      const existing = activeBySession.get(sessionId)
-      if (existing && existing.turn === null && Number.isSafeInteger(turn)) {
-        existing.turn = turn
+      if (Number.isSafeInteger(turn) && !entriesByTurn.has(turnKey(sessionId, turn))) {
+        const unclaimed = shiftUnclaimed(sessionId)
+        if (unclaimed) {
+          bindTurn(unclaimed, turn)
+          syncEntryMode(unclaimed, mode)
+        }
       }
       return
     }
 
-    let entry = activeBySession.get(sessionId)
+    let entry = findActiveForSession(sessionId, turn)
     if (!entry && (type === 'assistant/message' || type === 'tool/call')) {
       entry = ensureEntryForDesktopSync({ sessionId, project, mode, turn })
     }
     if (!entry || entry.finalized) return
     if (entry.turn !== null && Number.isSafeInteger(turn) && entry.turn !== turn) return
-    if (entry.turn === null && Number.isSafeInteger(turn)) entry.turn = turn
+    if (entry.turn === null && Number.isSafeInteger(turn)) bindTurn(entry, turn)
+    syncEntryMode(entry, mode)
 
     if (type === 'tool/call') {
       const toolName = String(event.data?.name ?? event.data?.toolName ?? '工具').trim()
@@ -457,14 +726,18 @@ export function createFeishuReplyStreamer({
 
   function forgetSession(sessionId) {
     streamMetaBySession.delete(sessionId)
-    const entry = activeBySession.get(sessionId)
-    if (entry) cleanup(entry)
+    for (const entry of [...allEntries]) {
+      if (entry.sessionId === sessionId) cleanup(entry)
+    }
+    unclaimedBySession.delete(sessionId)
   }
 
   function dispose() {
-    for (const entry of [...activeBySession.values()]) clearTimer(entry)
-    activeBySession.clear()
+    for (const entry of [...allEntries]) clearTimer(entry)
+    allEntries.clear()
+    entriesByTurn.clear()
     pendingByMessageId.clear()
+    unclaimedBySession.clear()
     streamMetaBySession.clear()
   }
 

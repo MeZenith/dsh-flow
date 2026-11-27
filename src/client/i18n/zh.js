@@ -138,7 +138,7 @@ const zh = {
 
   'feishu.secSecurity': '访问控制',
   'feishu.allowedUsers': '允许的用户',
-  'feishu.allowedUsersPlaceholder': '发 /id 获取，留空不限制',
+  'feishu.allowedUsersPlaceholder': '发 /id 获取；未填写时默认拦截所有指令',
   'feishu.defaultChatId': '默认会话',
   'feishu.defaultChatIdPlaceholder': '首次发消息自动记住',
 

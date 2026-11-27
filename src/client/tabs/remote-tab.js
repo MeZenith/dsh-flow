@@ -77,6 +77,8 @@ function RemoteTab({ value, disabled, setField, t, onFeishuState }) {
           setOnboard(data)
           if (data.phase === 'completed') {
             if (data.appId) setField(['feishu', 'appId'], data.appId)
+            if (data.domain === 'lark' || data.domain === 'feishu') setField(['feishu', 'domain'], data.domain)
+            if (feishuCfg.appSecret) setField(['feishu', 'appSecret'], '')
             setField(['feishu', 'enabled'], true)
             if (data.ownerOpenId) {
               const prev = Array.isArray(feishuCfg.allowedOpenIds) ? feishuCfg.allowedOpenIds : []

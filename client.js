@@ -312,7 +312,7 @@ window.__ModuleLoader__.load({
 
       'feishu.secSecurity': '访问控制',
       'feishu.allowedUsers': '允许的用户',
-      'feishu.allowedUsersPlaceholder': '发 /id 获取，留空不限制',
+      'feishu.allowedUsersPlaceholder': '发 /id 获取；未填写时默认拦截所有指令',
       'feishu.defaultChatId': '默认会话',
       'feishu.defaultChatIdPlaceholder': '首次发消息自动记住',
 
@@ -565,7 +565,7 @@ window.__ModuleLoader__.load({
 
       'feishu.secSecurity': 'Access',
       'feishu.allowedUsers': 'Allowed Users',
-      'feishu.allowedUsersPlaceholder': 'Send /id to bot · empty = any',
+      'feishu.allowedUsersPlaceholder': 'Send /id to bot · required (empty blocks all)',
       'feishu.defaultChatId': 'Default Chat',
       'feishu.defaultChatIdPlaceholder': 'Auto-captured on first message',
 
@@ -1958,6 +1958,8 @@ window.__ModuleLoader__.load({
               setOnboard(data)
               if (data.phase === 'completed') {
                 if (data.appId) setField(['feishu', 'appId'], data.appId)
+                if (data.domain === 'lark' || data.domain === 'feishu') setField(['feishu', 'domain'], data.domain)
+                if (feishuCfg.appSecret) setField(['feishu', 'appSecret'], '')
                 setField(['feishu', 'enabled'], true)
                 if (data.ownerOpenId) {
                   const prev = Array.isArray(feishuCfg.allowedOpenIds) ? feishuCfg.allowedOpenIds : []

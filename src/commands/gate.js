@@ -37,6 +37,7 @@ export async function handleGateCommand({ agent, rawArg, getConfig, tickets, set
   }
 
   if (sub === 'release') {
+    tickets.ensureLoaded?.(cwd)
     const targetId = String(parts[2] ?? '').replace(/^#/, '').trim()
     if (targetId === '' || targetId.toLowerCase() === 'all') {
       const released = tickets.releaseHold(sessionId)
@@ -91,7 +92,10 @@ export async function handleGateCommand({ agent, rawArg, getConfig, tickets, set
 
   gateRouter?.cancelPendingEscalations?.(ticket.sessionId)
   const settled = await settler.settle(ticket.id, { action: option.action, by: 'cmd', note })
-  if (settled.ok !== true && settled.already !== true) {
+  if (settled.already === true) {
+    return { kind: 'success', text: `票据 #${ticket.id} 已由其他端结算过，无需重复处理。` }
+  }
+  if (settled.ok !== true) {
     return { kind: 'error', text: settled.reason ?? '结算失败' }
   }
 

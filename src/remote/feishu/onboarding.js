@@ -13,7 +13,7 @@ import { buildAppPreset, openPlatformAppUrl } from './presets.js'
 import { encodeQrDataUrl } from './qr-svg.js'
 import { SLASH_COMMAND_SCOPES } from './slash-commands.js'
 
-/** 飞书扫码建应用所需的最小权限、事件与卡片回调集（含文件上传与原生 / 指令菜单）。 */
+/** 飞书扫码建应用所需的最小权限、事件与卡片回调集（含文件上传、CardKit 流式卡片与原生 / 指令菜单）。 */
 export const FEISHU_REQUIRED_SCOPES = Object.freeze([
   'im:message',
   'im:message:send_as_bot',
@@ -23,6 +23,7 @@ export const FEISHU_REQUIRED_SCOPES = Object.freeze([
   'im:resource',
   'im:chat:readonly',
   'contact:user.base:readonly',
+  'cardkit:card:write',
   ...SLASH_COMMAND_SCOPES,
 ])
 
@@ -86,8 +87,7 @@ export function createFeishuSecretStore({ getCredentials, getConfig }) {
     if (typeof overrideSecret === 'string' && overrideSecret.trim() !== '') {
       return overrideSecret.trim()
     }
-    const fromConfig = String(getConfig?.()?.feishu?.appSecret ?? '').trim()
-    if (fromConfig !== '') return fromConfig
+    // P1-8 修复：优先使用本进程最新保存的密钥与宿主安全凭据库，避免旧配置里的过期 appSecret 覆盖扫码新密钥。
     if (memorySecret !== '') return memorySecret
     try {
       const creds = getCredentials?.()
@@ -108,6 +108,8 @@ export function createFeishuSecretStore({ getCredentials, getConfig }) {
         }
       }
     } catch { /* 忽略 */ }
+    const fromConfig = String(getConfig?.()?.feishu?.appSecret ?? '').trim()
+    if (fromConfig !== '') return fromConfig
     return ''
   }
 
@@ -315,7 +317,7 @@ export function createFeishuOnboarding({ secretStore, onCompleted, logger }) {
               qrSvgDataUrl,
               expiresAt: Date.now() + (Number.isFinite(expireSec) && expireSec > 0 ? expireSec * 1000 : 300_000),
               statusText: isUpgrade
-                ? '请用手机飞书扫码确认补齐权限（含 / 指令菜单与文件上传）'
+                ? '请用手机飞书扫码确认补齐权限（含 / 指令菜单、流式卡片与文件上传）'
                 : '请用手机飞书扫码，并在手机上点「确认创建」',
             })
             notifyQr({ ok: true })
@@ -327,6 +329,7 @@ export function createFeishuOnboarding({ secretStore, onCompleted, logger }) {
             if (status.includes('scan') || status.includes('confirm')) {
               updateState({ phase: 'scanned', statusText: msg || '已扫码，请在手机飞书上确认…' })
             } else if (status === 'domain_switched') {
+              ensureNoProxyForFeishu('lark')
               updateState({ domain: 'lark', statusText: '检测到国际版 Lark 账号，已自动切换区域继续等待确认…' })
             } else if (msg !== '') {
               updateState({ statusText: msg })
@@ -356,9 +359,11 @@ export function createFeishuOnboarding({ secretStore, onCompleted, logger }) {
         }
 
         await secretStore.save(appSecret)
-        const platformUrl = openPlatformAppUrl(appId, cleanDomain)
+        const finalDomain = state.domain === 'lark' ? 'lark' : cleanDomain
+        const platformUrl = openPlatformAppUrl(appId, finalDomain)
         updateState({
           phase: 'completed',
+          domain: finalDomain,
           appId,
           ownerOpenId,
           openPlatformUrl: platformUrl,
@@ -368,13 +373,13 @@ export function createFeishuOnboarding({ secretStore, onCompleted, logger }) {
           error: '',
         })
         notifyQr({ ok: true })
-        logger?.info?.(`flow: 飞书扫码${isUpgrade ? '补权' : '建应用'}完成 appId=${appId}`)
+        logger?.info?.(`flow: 飞书扫码${isUpgrade ? '补权' : '建应用'}完成 appId=${appId} domain=${finalDomain}`)
 
         try {
           await onCompleted?.({
             appId,
             appSecret,
-            domain: cleanDomain,
+            domain: finalDomain,
             ownerOpenId,
             botName: preset.appPreset?.name ?? String(botName ?? '').trim(),
             botAvatarUrl: preset.appPreset?.avatar?.[0] ?? '',

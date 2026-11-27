@@ -73,13 +73,19 @@ export function createFeishuRouter({
     return String(cfg.localAlias || cfg.botName || DEFAULT_BOT_NAME).trim() || DEFAULT_BOT_NAME
   }
 
-  /** 严格白名单校验。 */
+  function normalizedAllowedOpenIds() {
+    const raw = getConfig()?.feishu?.allowedOpenIds
+    if (!Array.isArray(raw)) return []
+    return raw.map(item => String(item ?? '').trim()).filter(Boolean)
+  }
+
+  /** 严格 Fail-Closed 白名单校验（白名单为空时默认拒绝执行，仅放行 `/id` 与 `/whoami`）。 */
   function isAllowedUser(openId) {
-    const list = getConfig()?.feishu?.allowedOpenIds
-    if (!Array.isArray(list) || list.length === 0) return true
+    const list = normalizedAllowedOpenIds()
+    if (list.length === 0) return false
     const clean = String(openId ?? '').trim()
     if (clean === '') return false
-    return list.some(item => String(item ?? '').trim() === clean)
+    return list.includes(clean)
   }
 
   function getBinding(key, isGroup) {
@@ -131,16 +137,19 @@ export function createFeishuRouter({
     }
 
     if (!isAllowedUser(senderOpenId)) {
-      diag(`feishu deny sender=${senderOpenId}`)
+      const emptyList = normalizedAllowedOpenIds().length === 0
+      diag(`feishu deny sender=${senderOpenId} reason=${emptyList ? 'empty-allowlist' : 'not-in-allowlist'}`)
       await client.sendText(
         chatId,
-        `当前账号未在白名单内，已拒绝操作。\n如需授权，请将你的 open_id（${senderOpenId || '未知'}）添加到 DSH「远程指挥（飞书）」白名单中。`,
+        emptyList
+          ? `白名单尚未配置，出于本机安全默认已拦截远程指令。\n请将你的 open_id（${senderOpenId || '未知'}）粘贴到 DSH 设置页「飞书远程 → 允许的用户」，或重新扫码建应用自动写入。`
+          : `当前账号未在白名单内，已拒绝操作。\n如需授权，请将你的 open_id（${senderOpenId || '未知'}）添加到 DSH 设置页「飞书远程 → 允许的用户」。`,
         { replyToMessageId: messageId },
       )
       return
     }
 
-    onChatDiscovered?.(chatId, senderOpenId)
+    onChatDiscovered?.(chatId, senderOpenId, chatType)
 
     const isGroup = chatType === 'group'
     const bindKey = bindingKeyOf({ chatType, chatId, rootId, senderOpenId })
@@ -185,7 +194,7 @@ export function createFeishuRouter({
       const activeFocus = getBinding(bindKey, isGroup)
       await client.sendCard(
         chatId,
-        buildWorkspaceCard({ workspaces, sessions, activeFocus, botAlias: botAlias() }),
+        buildWorkspaceCard({ workspaces, sessions, activeFocus, botAlias: botAlias(), bindKey, isGroup }),
         { replyToMessageId: messageId },
       )
       return
@@ -391,7 +400,7 @@ export function createFeishuRouter({
       const workspaces = await hub.listWorkspaces()
       await client.sendCard(
         chatId,
-        buildWorkspaceCard({ workspaces, sessions, activeFocus: undefined, botAlias: botAlias() }),
+        buildWorkspaceCard({ workspaces, sessions, activeFocus: undefined, botAlias: botAlias(), bindKey, isGroup }),
         { replyToMessageId: messageId },
       )
       return
@@ -446,9 +455,20 @@ export function createFeishuRouter({
     const kind = String(value?.kind ?? '')
 
     if (!isAllowedUser(senderOpenId)) {
-      return { toast: { type: 'error', content: '当前账号不在白名单内，操作被拒绝' } }
+      const emptyList = normalizedAllowedOpenIds().length === 0
+      return {
+        toast: {
+          type: 'error',
+          content: emptyList
+            ? '白名单未配置，请先发 /id 获取并填入设置页'
+            : '当前账号不在白名单内，操作被拒绝',
+        },
+      }
     }
-    if (chatId !== '') onChatDiscovered?.(chatId, senderOpenId)
+    if (chatId !== '') {
+      const discoveredType = value?.isGroup === true ? 'group' : (value?.isGroup === false ? 'p2p' : '')
+      onChatDiscovered?.(chatId, senderOpenId, discoveredType)
+    }
 
     if (kind === 'ui:ping') {
       return { toast: { type: 'success', content: '✅ 飞书互动卡片回调畅通！' } }
@@ -524,13 +544,17 @@ export function createFeishuRouter({
       const project = String(value.project ?? '当前项目')
       void (async () => {
         const sid = targetSessionId || hub.listSessions()[0]?.sessionId || ''
-        if (sid === '') return
+        if (sid === '') {
+          if (chatId !== '') await client.sendText(chatId, '切换模式失败：当前没有在线桌面会话。')
+          return
+        }
         const res = await hub.switchMode({ sessionId: sid, mode: targetMode })
         if (res.ok && messageId !== '') {
+          const actualMode = hub.listSessions().find(s => s.sessionId === sid)?.mode ?? targetMode
           await client.patchCard(messageId, buildModeCard({
             project,
             sessionId: sid,
-            currentMode: targetMode,
+            currentMode: actualMode,
             botAlias: botAlias(),
           }))
         } else if (!res.ok && chatId !== '') {
@@ -566,17 +590,19 @@ export function createFeishuRouter({
     }
 
     if (kind === 'focus:session' || kind === 'focus:workspace') {
-      const bindKey = `p2p:${senderOpenId || chatId}`
       const binding = {
         sessionId: String(value.sessionId ?? ''),
         cwd: String(value.cwd ?? ''),
         project: String(value.project ?? '未命名工作区'),
         chatId,
       }
-      setBinding(bindKey, false, binding)
-      if (chatId !== '') {
-        // 同时按 group 维度兜底（若在群里点击）
+      // P1-6 修复：严格只更新发起点击的那一条会话/话题绑定键，不再跨私聊与群聊互相污染。
+      if (typeof value.bindKey === 'string' && value.bindKey !== '') {
+        setBinding(value.bindKey, value.isGroup === true, binding)
+      } else if (value.isGroup === true && chatId !== '') {
         setBinding(`group:${chatId}`, true, binding)
+      } else {
+        setBinding(`p2p:${senderOpenId || chatId}`, false, binding)
       }
       void (async () => {
         if (chatId !== '') {
@@ -614,14 +640,18 @@ export function createFeishuRouter({
       void (async () => {
         const res = await hub.settleGate({ ticketId, token, action, by: 'feishu' })
         if (res.ok && messageId !== '') {
-          await client.patchCard(messageId, buildGateResolvedCard({
-            ticket: res.ticket,
-            action: res.action,
-            label: res.label,
-            by: 'feishu',
-            effects: res.effects,
-            botAlias: botAlias(),
-          }))
+          // P1-6 修复：仅当 gate:settled 监听器未已 patch 并清除该卡片追踪时才兜底 patch，避免双 patch。
+          if (client.getTicketCard?.(ticketId)?.messageId === messageId) {
+            client.clearTicketCard?.(ticketId)
+            await client.patchCard(messageId, buildGateResolvedCard({
+              ticket: res.ticket,
+              action: res.action,
+              label: res.label,
+              by: 'feishu',
+              effects: res.effects,
+              botAlias: botAlias(),
+            }))
+          }
         } else if (!res.ok && chatId !== '') {
           await client.sendText(chatId, `门禁 #${ticketId} 处理结果：${res.reason}`)
         }
@@ -639,12 +669,16 @@ export function createFeishuRouter({
       void (async () => {
         const res = await hub.resolveBrake({ sessionId, action })
         if (res.ok && messageId !== '') {
-          await client.patchCard(messageId, buildBrakeResolvedCard({
-            project: res.project ?? project,
-            reason: res.action ?? action,
-            detail: res.message,
-            botAlias: botAlias(),
-          }))
+          // P1-6 修复：仅当 brake:unlocked 监听器未已 patch 并清除该卡片追踪时才兜底 patch。
+          if (client.getBrakeCard?.(sessionId)?.messageId === messageId) {
+            client.clearBrakeCard?.(sessionId)
+            await client.patchCard(messageId, buildBrakeResolvedCard({
+              project: res.project ?? project,
+              reason: res.action ?? action,
+              detail: res.message,
+              botAlias: botAlias(),
+            }))
+          }
         } else if (!res.ok && chatId !== '') {
           await client.sendText(chatId, `熔断处理提示：${res.reason}`)
         }

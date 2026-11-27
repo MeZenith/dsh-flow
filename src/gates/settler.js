@@ -39,6 +39,8 @@ function isApproval(action) {
 export function createGateSettler({
   getConfig, switchMode, syncModeCommand, bridge, notifier, tickets, resolveAgent, onSettled, logger, diag = () => {},
 }) {
+  const inFlight = new Set()
+
   const warn = (message) => {
     try { logger?.warn?.(message) } catch { /* 忽略 */ }
   }
@@ -109,7 +111,20 @@ export function createGateSettler({
       const autoCompact = config?.behavior?.autoCompactOnGate !== false
       if (autoCompact && typeof bridge?.schedule === 'function') {
         try {
-          effects.compactScheduled = bridge.schedule(agent) === true
+          // P1-7 修复：门禁批准时若会话已空闲，先原地同步执行一次压缩，避免随后的 `followup` 抢跑导致 `busy`。
+          if (agent.status === 'idle' && typeof bridge.runNow === 'function') {
+            const immediate = await bridge.runNow(agent)
+            if (immediate?.ok === true) {
+              effects.compactScheduled = true
+              effects.compacted = true
+            } else if (immediate?.code === 'busy') {
+              effects.compactScheduled = bridge.schedule(agent) === true
+            } else {
+              effects.compactScheduled = false
+            }
+          } else {
+            effects.compactScheduled = bridge.schedule(agent) === true
+          }
         } catch {
           effects.compactScheduled = false
         }
@@ -157,16 +172,38 @@ export function createGateSettler({
         reason: `票据 #${ticket.id} 已经结算过（${ticket.state}）`,
       }
     }
-
-    const effects = await applyEffects(ticket, action)
-    const decided = tickets.decide(ticket.id, { action, by, note, effects })
-    if (decided.ok !== true) {
-      return { ok: false, action, reason: decided.reason }
+    if (inFlight.has(ticket.id)) {
+      return {
+        ok: false,
+        already: true,
+        action: ticket.action || ticket.state,
+        ticket,
+        reason: `票据 #${ticket.id} 正在结算中，请勿重复操作`,
+      }
     }
+
+    inFlight.add(ticket.id)
     try {
-      onSettled?.({ ticket: decided.ticket, action, by, note, effects })
-    } catch { /* 回调异常不影响结算 */ }
-    return { ok: true, already: false, action, ticket: decided.ticket, effects }
+      // P0-5 修复：先原子占位结算票据，再执行异步副作用，杜绝双端并发/连点 TOCTOU 状态撕裂。
+      const decided = tickets.decide(ticket.id, { action, by, note })
+      if (decided.ok !== true) {
+        return {
+          ok: false,
+          already: GATE_FINAL_STATES.includes(ticket.state),
+          action: ticket.action || action,
+          ticket,
+          reason: decided.reason,
+        }
+      }
+      const effects = await applyEffects(decided.ticket, action)
+      decided.ticket.effects = effects
+      try {
+        onSettled?.({ ticket: decided.ticket, action, by, note, effects })
+      } catch { /* 回调异常不影响结算 */ }
+      return { ok: true, already: false, action, ticket: decided.ticket, effects }
+    } finally {
+      inFlight.delete(ticket.id)
+    }
   }
 
   return { settle, applyEffects }

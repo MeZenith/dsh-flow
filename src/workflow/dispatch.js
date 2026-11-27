@@ -312,6 +312,9 @@ export function createDispatchStore({ stateStore } = {}) {
       bySession.delete(key)
       stateStore?.clearDispatch?.(key)
     },
+    forget(sessionId) {
+      bySession.delete(String(sessionId ?? ''))
+    },
     get size() {
       return bySession.size
     },

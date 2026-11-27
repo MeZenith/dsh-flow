@@ -30,6 +30,8 @@ import {
   buildToolApprovalCard,
   buildToolApprovalResolvedCard,
   buildWelcomeCard,
+  redactSensitiveText,
+  redactSensitiveValue,
 } from './cards.js'
 import { AVATAR_PRESETS, DEFAULT_BOT_DESCRIPTION, DEFAULT_BOT_NAME, openPlatformAppUrl } from './presets.js'
 import { projectNameOfCwd } from '../../shared/message.js'
@@ -48,28 +50,42 @@ import { projectNameOfCwd } from '../../shared/message.js'
  */
 export function createFeishuCommander({ hub, getConfig, getCredentials, stateStore, logger, diag = () => {} }) {
   const secretStore = createFeishuSecretStore({ getCredentials, getConfig })
-  let discoveredChatId = ''
+  const savedMeta = stateStore?.getFeishuMeta?.() ?? {}
+  let lastPrivateChatId = String(savedMeta.lastPrivateChatId ?? '').trim()
+  let lastChatId = String(savedMeta.lastChatId ?? '').trim()
   let botProfile = { name: '', avatarUrl: '', openId: '' }
-  let runtimeAppId = ''
-  let runtimeDomain = 'feishu'
+  let runtimeAppId = String(savedMeta.runtimeAppId ?? '').trim()
+  let runtimeDomain = savedMeta.runtimeDomain === 'lark' ? 'lark' : 'feishu'
+  let runtimeOwnerOpenId = String(savedMeta.ownerOpenId ?? '').trim()
   let slashMenuState = { status: 'unknown', reason: '' }
-  /** 待决 DSH 工具审批映射：approvalId -> { settle, project, toolName, messageId } */
+  /** 待决 DSH 工具审批映射：approvalId -> { settle, onFeishuUnavailable, project, toolName } */
   const pendingApprovals = new Map()
 
   function settings() {
     const cfg = getConfig()?.feishu ?? {}
+    const cfgAppId = String(cfg.appId ?? '').trim()
+    const cfgAllowed = Array.isArray(cfg.allowedOpenIds)
+      ? cfg.allowedOpenIds.map(v => String(v ?? '').trim()).filter(Boolean)
+      : []
+    // 若扫码在后台完成后用户尚未保存设置页（cfg.appId 仍为空），用持久化的扫码态兜底，避免重启丢配置。
+    const effectiveDomain = cfg.domain === 'lark'
+      ? 'lark'
+      : (cfgAppId === '' && runtimeDomain === 'lark' ? 'lark' : 'feishu')
+    const effectiveAllowed = cfgAllowed.length > 0
+      ? cfgAllowed
+      : (cfgAppId === '' && runtimeOwnerOpenId !== '' ? [runtimeOwnerOpenId] : [])
     return {
-      enabled: cfg.enabled === true,
-      domain: cfg.domain === 'lark' ? 'lark' : 'feishu',
-      appId: String(cfg.appId ?? '').trim() || runtimeAppId,
+      enabled: cfg.enabled === true || (cfgAppId === '' && runtimeAppId !== ''),
+      domain: effectiveDomain,
+      appId: cfgAppId || runtimeAppId,
       appSecret: String(cfg.appSecret ?? '').trim(),
       botName: String(cfg.botName ?? '').trim() || DEFAULT_BOT_NAME,
       botDescription: String(cfg.botDescription ?? '').trim() || DEFAULT_BOT_DESCRIPTION,
       botAvatarUrl: String(cfg.botAvatarUrl ?? '').trim(),
       localAlias: String(cfg.localAlias ?? '').trim(),
       localAvatar: String(cfg.localAvatar ?? '').trim(),
-      allowedOpenIds: Array.isArray(cfg.allowedOpenIds) ? cfg.allowedOpenIds : [],
-      defaultChatId: String(cfg.defaultChatId ?? '').trim() || discoveredChatId,
+      allowedOpenIds: effectiveAllowed,
+      defaultChatId: String(cfg.defaultChatId ?? '').trim() || lastPrivateChatId || lastChatId,
       pushOnGate: cfg.pushOnGate !== false,
       pushOnBrake: cfg.pushOnBrake !== false,
       pushOnComplete: cfg.pushOnComplete !== false,
@@ -84,7 +100,7 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
     return s.localAlias || botProfile.name || s.botName || DEFAULT_BOT_NAME
   }
 
-  /** 按会话寻找最合适的飞书推送目标（优先已绑定该会话的群/私聊，其次 defaultChatId）。 */
+  /** 按会话寻找最合适的飞书推送目标 chatId（会话绑定 → 显式 defaultChatId → 持久化私聊 → 持久化最近聊天）。 */
   function resolveTargetChatId(sessionId) {
     const s = settings()
     const key = String(sessionId ?? '')
@@ -101,10 +117,21 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
     return s.defaultChatId
   }
 
+  /** 主动推送目标解析（P1-3 修复）：若暂无 chatId，回落到白名单首位 open_id 直达本人私聊。 */
+  function resolvePushTarget(sessionId) {
+    const chatId = resolveTargetChatId(sessionId)
+    if (chatId !== '') return { target: chatId, receiveIdType: 'chat_id' }
+    const s = settings()
+    const openId = String(s.allowedOpenIds?.[0] ?? runtimeOwnerOpenId ?? '').trim()
+    if (openId !== '') return { target: openId, receiveIdType: 'open_id' }
+    return null
+  }
+
   let router
   const client = createFeishuClient({
     onMessage: (data) => router.handleMessage(data),
     onCardAction: (data) => router.handleCardAction(data),
+    onDisconnected: () => releasePendingApprovalsOnDisconnect(),
     logger,
     diag,
   })
@@ -133,8 +160,14 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
     getConfig,
     replyStreamer,
     resolveApproval,
-    onChatDiscovered: (chatId) => {
-      if (chatId !== '' && discoveredChatId === '') discoveredChatId = chatId
+    onChatDiscovered: (chatId, _senderOpenId, chatType = '') => {
+      const clean = String(chatId ?? '').trim()
+      if (clean === '') return
+      lastChatId = clean
+      if (chatType === 'p2p') {
+        lastPrivateChatId = clean
+      }
+      stateStore?.setFeishuMeta?.({ lastPrivateChatId, lastChatId })
     },
     logger,
     diag,
@@ -181,7 +214,13 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
     logger,
     onCompleted: async ({ appId, appSecret, domain, ownerOpenId, botName, botAvatarUrl, isUpgrade }) => {
       runtimeAppId = appId
-      runtimeDomain = domain
+      runtimeDomain = domain === 'lark' ? 'lark' : 'feishu'
+      if (ownerOpenId) runtimeOwnerOpenId = ownerOpenId
+      stateStore?.setFeishuMeta?.({
+        runtimeAppId,
+        runtimeDomain,
+        ownerOpenId: runtimeOwnerOpenId,
+      })
       if (botName || botAvatarUrl) {
         botProfile = {
           name: botName || botProfile.name,
@@ -189,7 +228,7 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
           openId: botProfile.openId,
         }
       }
-      const connected = await client.connect({ appId, appSecret, domain })
+      const connected = await client.connect({ appId, appSecret, domain: runtimeDomain })
       if (connected.ok) {
         void syncSlashCommands()
         if (ownerOpenId) {
@@ -209,14 +248,19 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
     if (type === 'gate:created' && s.pushOnGate) {
       const ticket = payload?.ticket
       if (ticket === undefined) return
-      const chatId = resolveTargetChatId(ticket.sessionId)
-      if (chatId === '') return
-      const sent = await client.sendCard(chatId, buildGateCard({ ticket, botAlias: displayAlias() }))
+      const dest = resolvePushTarget(ticket.sessionId)
+      if (dest === null) {
+        logger?.warn?.(`flow: 门禁 #${ticket.id} 尚未确定飞书推送目标，跳过飞书卡片推送`)
+        return
+      }
+      const sent = await client.sendCard(dest.target, buildGateCard({ ticket, botAlias: displayAlias() }), { receiveIdType: dest.receiveIdType })
       if (sent.ok && sent.messageId) {
-        client.trackTicketCard(ticket.id, { messageId: sent.messageId, chatId })
+        client.trackTicketCard(ticket.id, { messageId: sent.messageId, chatId: dest.target })
       }
       if (s.sendDocFiles && Array.isArray(payload?.attachments) && payload.attachments.length > 0) {
-        await client.sendFiles(chatId, payload.attachments, { replyToMessageId: sent.messageId })
+        if (sent.messageId || dest.receiveIdType === 'chat_id') {
+          await client.sendFiles(dest.target, payload.attachments, { replyToMessageId: sent.messageId })
+        }
       }
       return
     }
@@ -226,6 +270,8 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
       if (ticket === undefined) return
       const tracked = client.getTicketCard(ticket.id)
       if (tracked?.messageId) {
+        // 先同步清除追踪键，避免 router.js 重复 patch 同一张门禁卡片（P1-6 修复）
+        client.clearTicketCard?.(ticket.id)
         await client.patchCard(tracked.messageId, buildGateResolvedCard({
           ticket,
           action: payload.action,
@@ -240,11 +286,14 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
     }
 
     if (type === 'brake:tripped' && s.pushOnBrake) {
-      const chatId = resolveTargetChatId(payload?.sessionId)
-      if (chatId === '') return
-      const sent = await client.sendCard(chatId, buildBrakeCard({ brake: payload, botAlias: displayAlias() }))
+      const dest = resolvePushTarget(payload?.sessionId)
+      if (dest === null) {
+        logger?.warn?.('flow: 熔断告警尚未确定飞书推送目标，跳过飞书卡片推送')
+        return
+      }
+      const sent = await client.sendCard(dest.target, buildBrakeCard({ brake: payload, botAlias: displayAlias() }), { receiveIdType: dest.receiveIdType })
       if (sent.ok && sent.messageId && payload?.sessionId) {
-        client.trackBrakeCard(payload.sessionId, { messageId: sent.messageId, chatId })
+        client.trackBrakeCard(payload.sessionId, { messageId: sent.messageId, chatId: dest.target })
       }
       return
     }
@@ -252,6 +301,8 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
     if (type === 'brake:unlocked') {
       const tracked = client.getBrakeCard(payload?.sessionId)
       if (tracked?.messageId) {
+        // 先同步清除追踪键，避免 router.js 重复 patch 同一张熔断卡片（P1-6 修复）
+        client.clearBrakeCard?.(payload?.sessionId)
         await client.patchCard(tracked.messageId, buildBrakeResolvedCard({
           project: payload?.project ?? '桌面会话',
           reason: payload?.reason ?? 'manual',
@@ -269,15 +320,15 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
     }
 
     if (type === 'session:completed' && s.pushOnComplete) {
-      const chatId = resolveTargetChatId(payload?.sessionId)
-      if (chatId === '') return
-      await client.sendCard(chatId, buildSummaryCard({
+      const dest = resolvePushTarget(payload?.sessionId)
+      if (dest === null) return
+      await client.sendCard(dest.target, buildSummaryCard({
         title: payload?.title ?? 'Flow 阶段进展',
         project: payload?.project ?? '',
         markdown: payload?.markdown ?? '',
         template: 'green',
         botAlias: displayAlias(),
-      }))
+      }), { receiveIdType: dest.receiveIdType })
     }
   })
 
@@ -293,6 +344,7 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
     }
     runtimeAppId = appId
     runtimeDomain = domain
+    stateStore?.setFeishuMeta?.({ runtimeAppId, runtimeDomain })
     const verified = await verifyFeishuCredentials({ appId, appSecret: secret, domain })
     if (verified.ok) {
       botProfile = { name: verified.botName, avatarUrl: verified.botAvatarUrl, openId: verified.botOpenId }
@@ -323,17 +375,31 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
     const approvalId = `appr-${randomUUID().slice(0, 10)}`
     const project = projectNameOfCwd(String(session?.header?.cwd ?? ''))
     const toolName = String(request?.toolName ?? request?.name ?? '工具调用')
-    const reason = String(request?.reason ?? '')
+    const reason = redactSensitiveText(String(request?.reason ?? ''))
     let summary = ''
     try {
       const rawInput = request?.input ?? request?.args ?? request?.params
       if (rawInput !== undefined && rawInput !== null) {
-        summary = typeof rawInput === 'string' ? rawInput : JSON.stringify(rawInput, null, 2)
+        if (typeof rawInput === 'string') {
+          summary = redactSensitiveText(rawInput)
+        } else {
+          summary = redactSensitiveText(JSON.stringify(redactSensitiveValue(rawInput), null, 2))
+        }
       }
     } catch { /* 忽略序列化异常 */ }
 
     const localAc = new AbortController()
-    if (request && typeof request === 'object') request.signal = localAc.signal
+    let signalPatched = false
+    if (request && typeof request === 'object') {
+      const desc = Object.getOwnPropertyDescriptor(request, 'signal')
+      const canWrite = desc ? (desc.writable === true || typeof desc.set === 'function') : Object.isExtensible(request)
+      if (canWrite) {
+        try {
+          request.signal = localAc.signal
+          signalPatched = true
+        } catch { /* 宿主冻结 request 对象时不强行改写 */ }
+      }
+    }
 
     let desktopPending = true
     let feishuAvailable = true
@@ -341,6 +407,7 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
     let settledDecision = 'cancelled'
     let settledBy = 'desktop'
     let cardMessageId = ''
+    let timeoutTimer = null
     let resolvePromise
     const promise = new Promise((resolve) => { resolvePromise = resolve })
 
@@ -349,9 +416,15 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
       done = true
       settledDecision = decision
       settledBy = by
+      if (timeoutTimer !== null) {
+        clearTimeout(timeoutTimer)
+        timeoutTimer = null
+      }
       pendingApprovals.delete(approvalId)
       origSignal?.removeEventListener?.('abort', onOrigAbort)
-      if (request && request.signal === localAc.signal) request.signal = origSignal
+      if (signalPatched && request && request.signal === localAc.signal) {
+        try { request.signal = origSignal } catch { /* 忽略 */ }
+      }
       if (!localAc.signal.aborted) {
         try { localAc.abort(new Error('approval settled')) } catch { /* 忽略 */ }
       }
@@ -368,10 +441,24 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
       return true
     }
 
+    const onFeishuUnavailable = (by = 'system') => {
+      feishuAvailable = false
+      if (!desktopPending) settle('unavailable', by)
+    }
+
     const onOrigAbort = () => { settle('cancelled', 'system') }
     origSignal?.addEventListener?.('abort', onOrigAbort, { once: true })
 
-    pendingApprovals.set(approvalId, { settle, project, toolName })
+    // 兜底超时：防止桌面不可用且飞书无人点击/网络异常时会话永久死锁
+    const timeoutRaw = Number(getConfig?.()?.feishu?.approvalTimeoutMs)
+    const timeoutMs = Number.isFinite(timeoutRaw) && timeoutRaw > 0 ? timeoutRaw : 5 * 60 * 1000
+    timeoutTimer = setTimeout(() => {
+      timeoutTimer = null
+      onFeishuUnavailable('timeout')
+    }, timeoutMs)
+    if (typeof timeoutTimer.unref === 'function') timeoutTimer.unref()
+
+    pendingApprovals.set(approvalId, { settle, onFeishuUnavailable, project, toolName })
 
     // 1. 竞争拉起桌面原生审批
     Promise.resolve()
@@ -379,6 +466,8 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
       .then((desktopDecision) => {
         if (desktopDecision === 'allowed-once' || desktopDecision === 'rejected') {
           settle(desktopDecision, 'desktop')
+        } else if (desktopDecision === 'cancelled' && !localAc.signal.aborted) {
+          settle('cancelled', 'desktop')
         } else {
           desktopPending = false
           if (!feishuAvailable) settle('unavailable', 'system')
@@ -413,12 +502,10 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
           }))
         }
       } else {
-        feishuAvailable = false
-        if (!desktopPending) settle('unavailable', 'system')
+        onFeishuUnavailable('system')
       }
     }).catch(() => {
-      feishuAvailable = false
-      if (!desktopPending) settle('unavailable', 'system')
+      onFeishuUnavailable('system')
     })
 
     return promise
@@ -450,17 +537,19 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
   /** 通用通知发送（供 `src/notify/im.js` 优先调用）。 */
   async function sendNotification({ title, markdown, sessionId, attachments }) {
     if (!client.isReady()) return { ok: false, reason: '飞书长连接未就绪' }
-    const chatId = resolveTargetChatId(sessionId)
-    if (chatId === '') {
-      return { ok: false, reason: '尚未确定飞书推送目标（请先给机器人发任意消息，或在设置页填 defaultChatId）' }
+    const dest = resolvePushTarget(sessionId)
+    if (dest === null) {
+      return { ok: false, reason: '尚未确定飞书推送目标（请先给机器人发任意消息，或在设置页填 defaultChatId / 白名单 open_id）' }
     }
-    const cardRes = await client.sendCard(chatId, buildSummaryCard({
+    const cardRes = await client.sendCard(dest.target, buildSummaryCard({
       title: title || 'Flow 通知',
       markdown,
       botAlias: displayAlias(),
-    }))
+    }), { receiveIdType: dest.receiveIdType })
     if (cardRes.ok && Array.isArray(attachments) && attachments.length > 0 && settings().sendDocFiles) {
-      await client.sendFiles(chatId, attachments, { replyToMessageId: cardRes.messageId })
+      if (cardRes.messageId || dest.receiveIdType === 'chat_id') {
+        await client.sendFiles(dest.target, attachments, { replyToMessageId: cardRes.messageId })
+      }
     }
     return cardRes
   }
@@ -539,6 +628,17 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
     return result
   }
 
+  function releasePendingApprovalsOnDisconnect() {
+    for (const entry of [...pendingApprovals.values()]) {
+      try { entry.onFeishuUnavailable?.('system') } catch { /* 忽略 */ }
+    }
+  }
+
+  async function disconnect() {
+    releasePendingApprovalsOnDisconnect()
+    await client.disconnect()
+  }
+
   async function dispose() {
     offHub()
     onboarding.cancel()
@@ -553,7 +653,7 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
   return {
     autoStart,
     connect,
-    disconnect: () => client.disconnect(),
+    disconnect,
     status,
     presets,
     verifyCredentials,

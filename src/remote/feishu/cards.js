@@ -57,7 +57,15 @@ function buttonColumnSet(buttons) {
 }
 
 /** 1. 工作区与在线会话选择卡片。 */
-export function buildWorkspaceCard({ workspaces = [], sessions = [], activeFocus, botAlias = DEFAULT_BOT_NAME }) {
+export function buildWorkspaceCard({
+  workspaces = [],
+  sessions = [],
+  activeFocus,
+  botAlias = DEFAULT_BOT_NAME,
+  bindKey = '',
+  isGroup = false,
+}) {
+  const scopeMeta = bindKey ? { bindKey, isGroup: isGroup === true } : {}
   const elements = []
   const focusLabel = activeFocus?.project
     ? `当前聚焦：**${activeFocus.project}**${activeFocus.sessionId ? `（\`${activeFocus.sessionId.slice(0, 8)}\`）` : ''}`
@@ -77,6 +85,7 @@ export function buildWorkspaceCard({ workspaces = [], sessions = [], activeFocus
           sessionId: item.sessionId,
           cwd: item.cwd,
           project: item.project,
+          ...scopeMeta,
         },
       })
     })
@@ -95,6 +104,7 @@ export function buildWorkspaceCard({ workspaces = [], sessions = [], activeFocus
         kind: 'focus:workspace',
         cwd: ws.cwd,
         project: ws.name,
+        ...scopeMeta,
       },
     }))))
   }
@@ -456,6 +466,50 @@ export function buildFinalReplyCard({
   }
 }
 
+const SENSITIVE_KEY_RE = /(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|authorization|cookie|credential|dsn|connection[_-]?string)/i
+
+/** 对文本中的常见密钥、凭证、私钥与连接串密码做脱敏（防止经审批卡片外泄至飞书云端历史）。 */
+export function redactSensitiveText(text) {
+  let out = String(text ?? '')
+  if (out === '') return ''
+  out = out.replace(/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/g, '[REDACTED_PRIVATE_KEY]')
+  out = out.replace(/(\b(?:proxy-)?authorization\s*[:=]\s*)(?:bearer\s+|basic\s+)?[^\s"',;}\n]+/gi, '$1[REDACTED]')
+  out = out.replace(/(\bBearer\s+)[A-Za-z0-9._~+/=-]{6,}/gi, '$1[REDACTED]')
+  out = out.replace(/\b(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{12,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{20,}|AKIA[0-9A-Z]{16})\b/g, '[REDACTED]')
+  out = out.replace(/([a-z][a-z0-9+.-]*:\/\/[^/\s:@]+:)([^/\s@]+)(@)/gi, '$1[REDACTED]$3')
+  out = out.replace(/((?:["'])?\b(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|cookie|credential|dsn)\b(?:["'])?\s*[:=]\s*)(?:"[^"\n]*"|'[^'\n]*'|[^\s,;}\n]+)/gi, '$1[REDACTED]')
+  return out
+}
+
+/** 深度脱敏对象中的敏感字段，用于审批参数 JSON 序列化前清洗。 */
+export function redactSensitiveValue(value, seen = new WeakSet()) {
+  if (typeof value === 'string') return redactSensitiveText(value)
+  if (value === null || typeof value !== 'object') return value
+  if (seen.has(value)) return '[Circular]'
+  seen.add(value)
+  if (Array.isArray(value)) return value.map(item => redactSensitiveValue(item, seen))
+  const out = {}
+  for (const [k, v] of Object.entries(value)) {
+    if (SENSITIVE_KEY_RE.test(k)) {
+      out[k] = '[REDACTED]'
+    } else {
+      out[k] = redactSensitiveValue(v, seen)
+    }
+  }
+  return out
+}
+
+/** 使用比正文最长反引号序列更长的围栏包裹代码块，防止内容中的 ``` 冲破卡片渲染。 */
+export function wrapCodeFence(text) {
+  const body = String(text ?? '')
+  let maxRun = 2
+  for (const match of body.matchAll(/`+/g)) {
+    if (match[0].length > maxRun) maxRun = match[0].length
+  }
+  const fence = '`'.repeat(maxRun + 1)
+  return `${fence}\n${body}\n${fence}`
+}
+
 /** 9a. DSH 普通工具执行审批卡片（竞争式审批：手机或电脑任意一端先点即生效）。 */
 export function buildToolApprovalCard({
   approvalId,
@@ -465,10 +519,12 @@ export function buildToolApprovalCard({
   summary = '',
   botAlias = DEFAULT_BOT_NAME,
 }) {
+  const safeReason = redactSensitiveText(reason)
+  const safeSummary = redactSensitiveText(summary)
   const lines = [
     `**项目**：${project}　｜　**工具**：\`${toolName}\``,
-    reason ? `**说明**：${clip(reason, 400)}` : '',
-    summary ? `**操作内容**：\n\`\`\`\n${clip(summary, 700)}\n\`\`\`` : '',
+    safeReason ? `**说明**：${clip(safeReason, 400)}` : '',
+    safeSummary ? `**操作内容**：\n${wrapCodeFence(clip(safeSummary, 700))}` : '',
   ].filter(Boolean).join('\n')
 
   return {
@@ -504,15 +560,25 @@ export function buildToolApprovalResolvedCard({
   by = 'feishu',
   botAlias = DEFAULT_BOT_NAME,
 }) {
-  const byText = by === 'feishu' ? '飞书卡片' : by === 'desktop' ? '桌面端' : '系统'
+  const byText = by === 'feishu' ? '飞书卡片' : by === 'desktop' ? '桌面端' : by === 'timeout' ? '超时自动结束' : '系统'
   const isAllowed = decision === 'allowed-once'
   const isCancelled = decision === 'cancelled'
+  const isUnavailable = decision === 'unavailable'
   const title = isAllowed
     ? `✅ 已允许执行 · ${toolName}`
-    : isCancelled
-      ? `⏹ 审批已取消 · ${toolName}`
-      : `❌ 已拒绝执行 · ${toolName}`
+    : isUnavailable
+      ? `⌛ 审批已结束 · ${toolName}`
+      : isCancelled
+        ? `⏹ 审批已取消 · ${toolName}`
+        : `❌ 已拒绝执行 · ${toolName}`
   const template = isAllowed ? 'green' : 'grey'
+  const statusText = isAllowed
+    ? '允许本次执行'
+    : isUnavailable
+      ? (by === 'timeout' ? '审批已超时，未执行' : '飞书已断开，审批结束')
+      : isCancelled
+        ? '已取消'
+        : '已拒绝'
 
   return {
     schema: '2.0',
@@ -520,7 +586,7 @@ export function buildToolApprovalResolvedCard({
     header: cardHeader(title, `${botAlias} · ${project}`, template),
     body: {
       elements: [
-        mdBlock(`**结果**：${isAllowed ? '允许本次执行' : isCancelled ? '已取消' : '已拒绝'}（经由 ${byText}）`),
+        mdBlock(`**结果**：${statusText}（经由 ${byText}）`),
       ],
     },
   }

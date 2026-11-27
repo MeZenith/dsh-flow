@@ -53,6 +53,7 @@ export function createCircuitBreaker({
   const settling = new Set()
   const pending = new Map()
   const handoffs = new Map()
+  const settleCleanups = new Set()
   let disposed = false
 
   const diag = typeof diagSink === 'function'
@@ -149,7 +150,8 @@ export function createCircuitBreaker({
         return
       }
       done = true
-      setTimeout(() => {
+      const deferTimer = setTimeout(() => {
+        settleCleanups.delete(cancelDefer)
         if (disposed) return
         const queued = pending.get(key) ?? []
         pending.delete(key)
@@ -170,28 +172,55 @@ export function createCircuitBreaker({
           }
         })()
       }, 0)
+      if (typeof deferTimer.unref === 'function') deferTimer.unref()
+      const cancelDefer = () => { clearTimeout(deferTimer) }
+      settleCleanups.add(cancelDefer)
     }
 
-    const settled = typeof agent?.settled === 'function' ? agent.settled() : undefined
+    // P1-4 修复：真实 DSH 宿主 Agent 空闲等待方法名为 `whenIdle()`（向后兼容旧桩 `settled()`）。
+    const settled = typeof agent?.whenIdle === 'function'
+      ? agent.whenIdle()
+      : (typeof agent?.settled === 'function' ? agent.settled() : undefined)
     if (settled !== undefined && typeof settled.then === 'function') {
+      let raceTimer
+      const cancelRace = () => { if (raceTimer !== undefined) clearTimeout(raceTimer) }
+      settleCleanups.add(cancelRace)
       const timeout = new Promise(resolve => {
-        const timer = setTimeout(resolve, SETTLE_TIMEOUT_MS)
-        if (typeof timer.unref === 'function') timer.unref()
+        raceTimer = setTimeout(resolve, SETTLE_TIMEOUT_MS)
+        if (typeof raceTimer.unref === 'function') raceTimer.unref()
       })
-      void Promise.race([settled, timeout]).then(run, run)
+      void Promise.race([settled, timeout]).then(() => {
+        cancelRace()
+        settleCleanups.delete(cancelRace)
+        run()
+      }, () => {
+        cancelRace()
+        settleCleanups.delete(cancelRace)
+        run()
+      })
       return
     }
 
+    let watchTimer
     const off = ctx.on('agent/status', (payload) => {
       if (payload?.agent !== agent || payload?.status !== 'idle') return
-      try { off() } catch { /* 已释放 */ }
+      cleanupWatcher()
       run()
     })
-    const timer = setTimeout(() => {
-      try { off() } catch { /* 已释放 */ }
+    const cleanupWatcher = () => {
+      settleCleanups.delete(cleanupWatcher)
+      if (watchTimer !== undefined) {
+        clearTimeout(watchTimer)
+        watchTimer = undefined
+      }
+      try { off?.() } catch { /* 已释放 */ }
+    }
+    watchTimer = setTimeout(() => {
+      cleanupWatcher()
       run()
     }, SETTLE_TIMEOUT_MS)
-    if (typeof timer.unref === 'function') timer.unref()
+    if (typeof watchTimer.unref === 'function') watchTimer.unref()
+    settleCleanups.add(cleanupWatcher)
   }
 
   function codeHintOf() {
@@ -304,6 +333,11 @@ export function createCircuitBreaker({
         diag(`lock notice=fail key=${state.key} ${error instanceof Error ? error.message : String(error)}`)
         logger?.warn?.(`flow: 熔断告警渲染失败 → ${error instanceof Error ? error.message : String(error)}`)
       }
+      // P1-7 修复：`/flow-notice` 执行期间用户可能已秒解熔断，必须二次确认仍在熔断态才挂延迟告警。
+      if (disposed || states.get(state.key)?.tripped !== true) {
+        diag(`lock notify=skip key=${state.key} 已在 /flow-notice 期间解锁`)
+        return
+      }
       // B-10c 修复：保存通知句柄，解锁时立即取消，避免延迟弹出过期提醒。
       state.notifyHandle?.cancel?.()
       state.notifyHandle = notifier.schedule('brake', {
@@ -372,6 +406,13 @@ export function createCircuitBreaker({
     }
   }
 
+  function normalizeUserSource(source) {
+    if (source !== null && typeof source === 'object' && typeof source.kind === 'string') {
+      return { ...source }
+    }
+    return { kind: 'user' }
+  }
+
   function followup(agent, state, note) {
     const message = state.lastUser
     if (message === undefined) {
@@ -379,7 +420,16 @@ export function createCircuitBreaker({
       return
     }
     try {
-      agent.followup(message)
+      // P1-7 / P1-4 修复：重投用户消息时生成全新 id 并确保 source 为对象，防止会话日志出现重复 message id。
+      const newId = typeof globalThis.crypto?.randomUUID === 'function'
+        ? `retry-${globalThis.crypto.randomUUID()}`
+        : `retry-${Date.now().toString(36)}`
+      agent.followup({
+        ...message,
+        id: newId,
+        role: message.role ?? 'user',
+        source: normalizeUserSource(message.source),
+      })
       logger?.info?.(`flow: 熔断解锁后重新投递（${note}）`)
     } catch (error) {
       logger?.warn?.(`flow: 重新投递失败 → ${error instanceof Error ? error.message : String(error)}`)
@@ -439,11 +489,21 @@ export function createCircuitBreaker({
   }
 
   function setHandoff(imKey, targetAgent, project) {
+    const now = Date.now()
+    for (const [k, v] of handoffs.entries()) {
+      if (now > v.expiresAt) handoffs.delete(k)
+    }
+    handoffs.delete(imKey)
     handoffs.set(imKey, {
       targetAgent,
       project,
-      expiresAt: Date.now() + HANDOFF_TTL_MS,
+      expiresAt: now + HANDOFF_TTL_MS,
     })
+    while (handoffs.size > 100) {
+      const oldest = handoffs.keys().next().value
+      if (oldest === undefined) break
+      handoffs.delete(oldest)
+    }
     diag(`handoff set im=${imKey} → target=${project} ttl=5min`)
   }
 
@@ -472,7 +532,7 @@ export function createCircuitBreaker({
     }
     const baseMsg = template !== undefined && template !== null && typeof template === 'object'
       ? { ...template }
-      : { source: 'dsh-flow' }
+      : {}
     try {
       const id = typeof globalThis.crypto?.randomUUID === 'function'
         ? `fwd-${globalThis.crypto.randomUUID()}`
@@ -481,6 +541,7 @@ export function createCircuitBreaker({
         ...baseMsg,
         id,
         role: 'user',
+        source: normalizeUserSource(baseMsg.source),
         content: [{ type: 'text', text }],
       })
       diag(`forward yes → ${label} len=${text.length}`)
@@ -673,20 +734,33 @@ export function createCircuitBreaker({
     }))
   }
 
-  /** 清理已释放会话的内存条目。 */
+  /** 清理已释放会话的内存条目（含 settling 与指向该目标会话的 handoffs，P1-9 修复）。 */
   function forget(sessionId) {
-    const key = `session:${String(sessionId ?? '')}`
+    const sid = String(sessionId ?? '')
+    const key = `session:${sid}`
     const state = states.get(key)
     try { state?.notifyHandle?.cancel?.() } catch { /* 忽略 */ }
     states.delete(key)
     alerts.delete(key)
     tripped.delete(key)
     pending.delete(key)
+    settling.delete(key)
     handoffs.delete(key)
+    if (sid !== '') {
+      for (const [imKey, entry] of handoffs.entries()) {
+        if (String(entry?.targetAgent?.session?.id ?? '') === sid) {
+          handoffs.delete(imKey)
+        }
+      }
+    }
   }
 
   function dispose() {
     disposed = true
+    for (const cleanup of [...settleCleanups]) {
+      try { cleanup() } catch { /* 忽略 */ }
+    }
+    settleCleanups.clear()
     for (const state of states.values()) {
       try { state?.notifyHandle?.cancel?.() } catch { /* 忽略 */ }
     }

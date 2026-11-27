@@ -49,6 +49,14 @@ export function createFlowStateStore({
   const feishuThreads = new Map()
   /** 飞书私聊 openId → { sessionId, cwd, chatId, updatedAt } */
   const feishuFocus = new Map()
+  /** 飞书持久化元信息（P1-3 / P1-8：跨重启保留默认私聊目标与扫码运行态 AppID/域） */
+  const feishuMeta = {
+    lastPrivateChatId: '',
+    lastChatId: '',
+    runtimeAppId: '',
+    runtimeDomain: '',
+    ownerOpenId: '',
+  }
   /** 最近活跃工作区 cwd → lastSeenAt */
   const recentWorkspaces = new Map()
 
@@ -66,6 +74,11 @@ export function createFlowStateStore({
       hydrate(dispatches, raw?.dispatches)
       hydrate(feishuThreads, raw?.feishuThreads)
       hydrate(feishuFocus, raw?.feishuFocus)
+      if (raw?.feishuMeta && typeof raw.feishuMeta === 'object') {
+        for (const key of Object.keys(feishuMeta)) {
+          if (typeof raw.feishuMeta[key] === 'string') feishuMeta[key] = raw.feishuMeta[key]
+        }
+      }
       if (raw?.recentWorkspaces && typeof raw.recentWorkspaces === 'object') {
         for (const [k, v] of Object.entries(raw.recentWorkspaces)) recentWorkspaces.set(k, v)
         trimMap(recentWorkspaces, MAX_WORKSPACES)
@@ -86,6 +99,7 @@ export function createFlowStateStore({
         dispatches: Object.fromEntries(dispatches),
         feishuThreads: Object.fromEntries(feishuThreads),
         feishuFocus: Object.fromEntries(feishuFocus),
+        feishuMeta: { ...feishuMeta },
         recentWorkspaces: Object.fromEntries(recentWorkspaces),
       }
       writeAtomic(filePath, JSON.stringify(payload, null, 2))
@@ -187,6 +201,19 @@ export function createFlowStateStore({
     },
     getAllFeishuFocuses() {
       return Object.fromEntries(feishuFocus)
+    },
+    getFeishuMeta() {
+      return { ...feishuMeta }
+    },
+    setFeishuMeta(patch = {}) {
+      let changed = false
+      for (const key of Object.keys(feishuMeta)) {
+        if (typeof patch[key] === 'string' && patch[key] !== feishuMeta[key]) {
+          feishuMeta[key] = patch[key]
+          changed = true
+        }
+      }
+      if (changed) save()
     },
 
     /* ---- 最近工作区 ---- */

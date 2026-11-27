@@ -36,6 +36,7 @@ export function createHarnessBridge({
   breaker,
   stateStore,
   getSessionController,
+  getWorkspaceRegistry,
   getWorkspaceController,
   logger,
 }) {
@@ -117,15 +118,34 @@ export function createHarnessBridge({
       }
     }
 
-    try {
-      const wc = typeof getWorkspaceController === 'function' ? getWorkspaceController() : ctx?.get?.('workspaceController')
-      const listed = typeof wc?.list === 'function' ? await wc.list() : []
-      for (const ws of Array.isArray(listed) ? listed : []) {
+    // P1-4 修复：真实 DSH 宿主的工作区清单位于 `workspaceRegistry`，同时向后兼容 `workspaceController.list()`。
+    const ingestWorkspaceList = (listed) => {
+      if (!listed) return
+      const items = Array.isArray(listed)
+        ? listed
+        : (typeof listed[Symbol.iterator] === 'function' ? [...listed] : [])
+      for (const ws of items) {
         const path = typeof ws === 'string' ? ws : (ws?.cwd ?? ws?.path ?? ws?.root ?? '')
-        const name = typeof ws === 'object' ? (ws?.name ?? ws?.label) : undefined
+        const name = typeof ws === 'object' ? (ws?.name ?? ws?.label ?? ws?.title) : undefined
         upsert(path, name)
       }
-    } catch { /* 宿主未提供 workspaceController */ }
+    }
+
+    try {
+      const wr = typeof getWorkspaceRegistry === 'function' ? getWorkspaceRegistry() : ctx?.get?.('workspaceRegistry')
+      if (wr !== undefined && wr !== null) {
+        if (typeof wr.list === 'function') ingestWorkspaceList(await wr.list())
+        else if (typeof wr.all === 'function') ingestWorkspaceList(await wr.all())
+        else if (typeof wr.values === 'function') ingestWorkspaceList([...wr.values()])
+        else if (Array.isArray(wr.workspaces)) ingestWorkspaceList(wr.workspaces)
+        else if (typeof wr[Symbol.iterator] === 'function') ingestWorkspaceList(wr)
+      }
+    } catch { /* 宿主未提供 workspaceRegistry */ }
+
+    try {
+      const wc = typeof getWorkspaceController === 'function' ? getWorkspaceController() : ctx?.get?.('workspaceController')
+      if (typeof wc?.list === 'function') ingestWorkspaceList(await wc.list())
+    } catch { /* 宿主未提供 workspaceController.list */ }
 
     const recents = stateStore?.getRecentWorkspaces?.() ?? []
     for (const item of recents) {
@@ -189,10 +209,14 @@ export function createHarnessBridge({
     const id = typeof globalThis.crypto?.randomUUID === 'function'
       ? `remote-${globalThis.crypto.randomUUID()}`
       : `remote-${Date.now().toString(36)}`
+    // P1-4 修复：真实 DSH 宿主 `UserMessage.source` 必须为带字符串 `kind` 的对象（而非原始字符串）。
+    const normalizedSource = source !== null && typeof source === 'object' && typeof source.kind === 'string'
+      ? { ...source }
+      : { kind: 'user' }
     const message = {
       id,
       role: 'user',
-      source,
+      source: normalizedSource,
       content: [{ type: 'text', text: cleanText }],
     }
 

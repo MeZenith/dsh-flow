@@ -26,9 +26,12 @@ function safeGet(read) {
   try { return read() } catch { return undefined }
 }
 
-export function createCompactBridge({ ctx, getHostCompaction, logger }) {
+export function createCompactBridge({ ctx, getHostCompaction, isLocked, logger }) {
   const waiting = new Set()
   const timers = new Set()
+  /** 在途压缩 AbortController -> agent（P1-9 修复：会话销毁或插件卸载时主动 abort 回收）。 */
+  const activeControllers = new Map()
+  const forgotten = new WeakSet()
   let disposed = false
 
   function resolve(agent) {
@@ -91,16 +94,28 @@ export function createCompactBridge({ ctx, getHostCompaction, logger }) {
   }
 
   function attempt(agent, index) {
-    if (disposed) return
+    if (disposed || forgotten.has(agent)) return
+    if (typeof isLocked === 'function' && isLocked(agent) === true) {
+      waiting.add(agent)
+      return
+    }
     const controller = new AbortController()
+    activeControllers.set(controller, agent)
     void runNow(agent, controller.signal).then((outcome) => {
-      if (disposed) return
+      activeControllers.delete(controller)
+      if (disposed || forgotten.has(agent)) return
       if (outcome.ok) {
         logger?.info?.(`flow: 阶段切换后自动压缩完成（${outcome.code}）`)
         return
       }
-      if (outcome.code === 'busy' && index < RETRY_DELAYS.length) {
-        later(RETRY_DELAYS[index], () => { attempt(agent, index + 1) })
+      if (outcome.code === 'busy') {
+        if (index < RETRY_DELAYS.length) {
+          later(RETRY_DELAYS[index], () => { attempt(agent, index + 1) })
+          return
+        }
+        // P1-7 修复：连续 busy 后重新挂回 waiting，等待下一次真正 idle 时完成压缩。
+        waiting.add(agent)
+        logger?.info?.('flow: 自动压缩因会话繁忙暂缓，已重新排队等待下次空闲')
         return
       }
       if (outcome.code !== 'unavailable') {
@@ -126,6 +141,8 @@ export function createCompactBridge({ ctx, getHostCompaction, logger }) {
     if (agent === undefined || agent === null) return
     if (payload?.status !== 'idle') return
     if (!waiting.has(agent)) return
+    // P1-7 修复：会话处于熔断锁定时暂缓自动压缩，避免与 /flow-notice 争抢。
+    if (typeof isLocked === 'function' && isLocked(agent) === true) return
     waiting.delete(agent)
     void Promise.resolve().then(() => { attempt(agent, 0) })
   }
@@ -134,12 +151,29 @@ export function createCompactBridge({ ctx, getHostCompaction, logger }) {
     return resolve(agent) !== undefined
   }
 
+  /** P1-9 修复：会话销毁时释放对已死 Agent 的强引用并中止其在途压缩请求。 */
+  function forget(agent) {
+    if (agent === undefined || agent === null) return
+    forgotten.add(agent)
+    waiting.delete(agent)
+    for (const [controller, owner] of activeControllers.entries()) {
+      if (owner === agent) {
+        try { controller.abort() } catch { /* 忽略 */ }
+        activeControllers.delete(controller)
+      }
+    }
+  }
+
   function dispose() {
     disposed = true
     waiting.clear()
+    for (const controller of activeControllers.keys()) {
+      try { controller.abort() } catch { /* 忽略 */ }
+    }
+    activeControllers.clear()
     for (const timer of timers) clearTimeout(timer)
     timers.clear()
   }
 
-  return { schedule, isScheduled, runNow, onStatus, available, dispose }
+  return { schedule, isScheduled, runNow, onStatus, available, forget, dispose }
 }

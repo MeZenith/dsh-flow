@@ -211,7 +211,11 @@ export function createReworkTracker({ max = MAX_REWORK_ROUNDS, stateStore } = {}
     stateStore?.resetRework?.(key)
   }
 
-  return { peek, next, reset, max }
+  function forget(sessionId) {
+    rounds.delete(String(sessionId ?? ''))
+  }
+
+  return { peek, next, reset, forget, max }
 }
 
 /** 组 qa 通知：正文置顶 🔴 阻塞项与待人工点验清单，附件带 06/07 两份报告。 */

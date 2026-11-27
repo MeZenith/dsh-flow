@@ -43,6 +43,10 @@ function shortLabel(label, max = 8) {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text
 }
 
+function normId(id) {
+  return String(id ?? '').replace(/^#/, '').trim().toLowerCase()
+}
+
 function stateOfAction(action) {
   switch (action) {
     case 'skip': return 'skipped'
@@ -60,9 +64,10 @@ function stateOfAction(action) {
  *   logger?: { warn?: Function, info?: Function },
  *   diag?: (message: string) => void,
  *   onEvent?: (type: string, ticket: object) => void,
+ *   onRecoverOpen?: (ticket: object) => Promise<void> | void,
  * }} deps
  */
-export function createGateTickets({ getConfig, logger, diag = () => {}, onEvent }) {
+export function createGateTickets({ getConfig, logger, diag = () => {}, onEvent, onRecoverOpen }) {
   const tickets = new Map()
   const escalations = new Map()
   const grants = new Map()
@@ -136,7 +141,7 @@ export function createGateTickets({ getConfig, logger, diag = () => {}, onEvent 
     }
   }
 
-  /** 首次接触某项目时把历史票据读回来。 */
+  /** 首次接触某项目时把历史票据读回来（P1-10 修复：收敛已超时的 open 票并重挂未到期催办定时器）。 */
   function ensureLoaded(cwd) {
     const path = statePathOf(cwd)
     if (path === null || loaded.has(path) || !existsSync(path)) return
@@ -144,21 +149,50 @@ export function createGateTickets({ getConfig, logger, diag = () => {}, onEvent 
     try {
       const parsed = JSON.parse(readFileSync(path, 'utf8'))
       const list = Array.isArray(parsed?.tickets) ? parsed.tickets : []
+      const now = Date.now()
+      const expiredDuringLoad = []
+      const toArm = []
       for (const item of list) {
-        if (typeof item?.id !== 'string' || tickets.has(item.id)) continue
-        const isPending = item.state === 'open' || item.state === 'expired'
-        tickets.set(item.id, {
+        const key = normId(item?.id)
+        if (key === '' || tickets.has(key)) continue
+        let state = String(item.state ?? 'open')
+        const deadline = Number(item.deadline) || 0
+        const justExpired = state === 'open' && deadline > 0 && deadline <= now
+        if (justExpired) state = 'expired'
+        const isPending = state === 'open' || state === 'expired'
+        const hydrated = {
           ...item,
+          id: key,
+          state,
+          deadline,
           draftId: typeof item.draftId === 'string' ? item.draftId : '',
           draftContent: '',
           options: Array.isArray(item.options) ? item.options : [],
           docIds: Array.isArray(item.docIds) ? item.docIds : [],
           attachments: Array.isArray(item.attachments) ? item.attachments : [],
           // 重启后保留 open 与 expired 两种未决票据的 hold，防止重启绕过门禁。
-          hold: isPending && item.hold === true,
+          hold: isPending && (item.hold === true || justExpired),
+        }
+        tickets.set(key, hydrated)
+        if (justExpired) {
+          expiredDuringLoad.push(hydrated)
+        } else if (state === 'open' && deadline > now && !disposed) {
+          toArm.push({ ticket: hydrated, remainingMs: deadline - now })
+        }
+      }
+      if (expiredDuringLoad.length > 0) {
+        persist(expiredDuringLoad[0])
+        for (const t of expiredDuringLoad) emit('expired', t)
+      }
+      for (const { ticket, remainingMs } of toArm) {
+        armEscalation(ticket.id, remainingMs, async () => {
+          expire(ticket.id)
+          if (typeof onRecoverOpen === 'function' && markNotified(ticket.id)) {
+            await onRecoverOpen(ticket)
+          }
         })
       }
-      diag(`tickets loaded ${list.length} from ${path}`)
+      diag(`tickets loaded ${list.length} from ${path} (expired=${expiredDuringLoad.length} rearmed=${toArm.length})`)
     } catch (error) {
       warn(`flow: 门禁票据文件损坏，已忽略 → ${error instanceof Error ? error.message : String(error)}`)
       loaded.delete(path)
@@ -219,7 +253,7 @@ export function createGateTickets({ getConfig, logger, diag = () => {}, onEvent 
   }
 
   function find(id, cwd) {
-    const key = String(id ?? '').replace(/^#/, '').trim().toLowerCase()
+    const key = normId(id)
     if (key === '') return undefined
     if (cwd !== undefined) ensureLoaded(cwd)
     return tickets.get(key)
@@ -240,7 +274,7 @@ export function createGateTickets({ getConfig, logger, diag = () => {}, onEvent 
   }
 
   function armEscalation(id, delayMs, handler) {
-    const key = String(id ?? '').replace(/^#/, '')
+    const key = normId(id)
     if (key === '') return false
     cancelEscalation(key)
     const delay = Number(delayMs)
@@ -262,7 +296,7 @@ export function createGateTickets({ getConfig, logger, diag = () => {}, onEvent 
   }
 
   function cancelEscalation(id) {
-    const key = String(id ?? '').replace(/^#/, '')
+    const key = normId(id)
     const timer = escalations.get(key)
     if (timer === undefined) return false
     clearTimeout(timer)
@@ -272,7 +306,7 @@ export function createGateTickets({ getConfig, logger, diag = () => {}, onEvent 
   }
 
   function hasEscalation(id) {
-    return escalations.has(String(id ?? '').replace(/^#/, ''))
+    return escalations.has(normId(id))
   }
 
   function supersede({ sessionId, kind, reason = '' } = {}) {
@@ -299,7 +333,7 @@ export function createGateTickets({ getConfig, logger, diag = () => {}, onEvent 
   }
 
   function decide(id, { action, by = 'desktop', note = '', effects } = {}) {
-    const ticket = tickets.get(String(id ?? '').replace(/^#/, ''))
+    const ticket = tickets.get(normId(id))
     if (ticket === undefined) return { ok: false, reason: `票据 #${String(id)} 不存在` }
     if (GATE_FINAL_STATES.includes(ticket.state)) {
       return { ok: false, reason: `票据 #${ticket.id} 已经结算过（${ticket.state}）` }
@@ -320,7 +354,7 @@ export function createGateTickets({ getConfig, logger, diag = () => {}, onEvent 
   }
 
   function expire(id) {
-    const ticket = tickets.get(String(id ?? '').replace(/^#/, ''))
+    const ticket = tickets.get(normId(id))
     if (ticket === undefined) return { ok: false, reason: '票据不存在' }
     if (ticket.state !== 'open') return { ok: false, reason: `票据状态是 ${ticket.state}` }
     ticket.state = 'expired'
@@ -333,7 +367,7 @@ export function createGateTickets({ getConfig, logger, diag = () => {}, onEvent 
   }
 
   function markNotified(id) {
-    const ticket = tickets.get(String(id ?? '').replace(/^#/, ''))
+    const ticket = tickets.get(normId(id))
     if (ticket === undefined) return false
     if (ticket.notifiedAt > 0) return false
     ticket.notifiedAt = Date.now()
@@ -343,7 +377,7 @@ export function createGateTickets({ getConfig, logger, diag = () => {}, onEvent 
 
   /** 解除单张票据的 hold（给 `/flow gate release <id>` 精准使用）。 */
   function releaseTicket(id) {
-    const ticket = tickets.get(String(id ?? '').replace(/^#/, ''))
+    const ticket = tickets.get(normId(id))
     if (ticket === undefined || ticket.hold !== true) return false
     ticket.hold = false
     persist(ticket)
@@ -384,7 +418,7 @@ export function createGateTickets({ getConfig, logger, diag = () => {}, onEvent 
   }
 
   function markGrantApplied(id) {
-    const ticket = tickets.get(String(id ?? '').replace(/^#/, ''))
+    const ticket = tickets.get(normId(id))
     if (ticket === undefined) return false
     ticket.grantApplied = true
     persist(ticket)
@@ -392,7 +426,7 @@ export function createGateTickets({ getConfig, logger, diag = () => {}, onEvent 
   }
 
   function markGrantConsumed(id) {
-    const ticket = tickets.get(String(id ?? '').replace(/^#/, ''))
+    const ticket = tickets.get(normId(id))
     if (ticket === undefined) return false
     ticket.grantConsumed = true
     persist(ticket)
@@ -400,7 +434,7 @@ export function createGateTickets({ getConfig, logger, diag = () => {}, onEvent 
   }
 
   function markModeApplied(id) {
-    const ticket = tickets.get(String(id ?? '').replace(/^#/, ''))
+    const ticket = tickets.get(normId(id))
     if (ticket === undefined) return false
     ticket.modeApplied = true
     persist(ticket)

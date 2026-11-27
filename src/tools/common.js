@@ -174,10 +174,10 @@ export async function sendGateEmail(email, { project, markdown, attachments, eve
   }
 }
 
-export async function sendIm(im, { title, markdown, sessionId }) {
+export async function sendIm(im, { title, markdown, sessionId, skipFeishu = false }) {
   if (typeof im?.send !== 'function') return { ok: false, via: 'im', reason: 'IM 渠道未装配' }
   try {
-    return await im.send({ title, markdown, sessionId })
+    return await im.send({ title, markdown, sessionId, skipFeishu })
   } catch (error) {
     return { ok: false, via: 'im', reason: error instanceof Error ? error.message : String(error) }
   }

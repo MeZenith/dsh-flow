@@ -189,6 +189,6 @@ test('D-01, B-03, B-05, B-06, M-05, M-06, M-07: end-to-end gate, docs writePolic
     tickets.dispose()
     ticketsReloaded.dispose()
   } finally {
-    rmSync(root, { recursive: true, force: true })
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
   }
 })

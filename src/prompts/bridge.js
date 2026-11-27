@@ -8,6 +8,7 @@
  * @module dsh-flow/prompts/bridge
  */
 import { buildModeText } from '../modes/planner.js'
+import { isPromptMode } from '../modes/registry.js'
 import { buildSpecNote } from '../modes/spec-anchor.js'
 import { docsNote } from '../workflow/docs.js'
 import { levelOfSession } from '../workflow/level.js'
@@ -69,7 +70,7 @@ export function attachAgentModeContext(agentCtx, source) {
   })
 }
 
-/** 为一个 Agent 注册方案锚点 context。 */
+/** 为一个 Agent 注册方案锚点 context（off 模式下静默不注入）。 */
 export function attachAgentSpecContext(agentCtx, source) {
   return agentCtx.systemPrompt.context({
     name: SPEC_CONTEXT,
@@ -79,13 +80,14 @@ export function attachAgentSpecContext(agentCtx, source) {
     text: () => {
       const config = source.getConfig()
       const modeId = source.getMode()
+      if (!isPromptMode(modeId)) return ''
       const label = typeof config?.modes?.[modeId]?.label === 'string' ? config.modes[modeId].label : modeId
       return buildSpecNote({ agent: source.agent, config, modeId, modeLabel: label })
     },
   })
 }
 
-/** 为一个 Agent 注册文档进度便利贴（≤5 行；模板正文永不进提示词）。 */
+/** 为一个 Agent 注册文档进度便利贴（≤5 行；模板正文永不进提示词；off 模式下不注入）。 */
 export function attachAgentDocsContext(agentCtx, source) {
   return agentCtx.systemPrompt.context({
     name: DOCS_CONTEXT,
@@ -94,6 +96,7 @@ export function attachAgentDocsContext(agentCtx, source) {
     interpolate: false,
     text: () => {
       try {
+        if (typeof source.getMode === 'function' && !isPromptMode(source.getMode())) return ''
         const config = source.getConfig()
         const cwd = source.agent?.session?.header?.cwd
         if (typeof cwd !== 'string' || cwd === '') return ''

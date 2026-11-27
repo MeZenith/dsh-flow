@@ -79,10 +79,16 @@ export function createGateRouter({ tickets, breaker, im, getConfig, resolveAgent
     const id = typeof globalThis.crypto?.randomUUID === 'function'
       ? `gate-${globalThis.crypto.randomUUID()}`
       : `gate-${Date.now().toString(36)}`
-    const baseMsg = template !== undefined && template !== null && typeof template === 'object'
+    const rawTemplate = template !== undefined && template !== null && typeof template === 'object'
       ? { ...template }
-      : { source: 'dsh-flow' }
-    const message = { ...baseMsg, id, role: 'user', content: [{ type: 'text', text }] }
+      : {}
+    // P1-4 修复：DSH 宿主 `UserMessage.source` 必须为带字符串 `kind` 的对象。
+    const normalizedSource = rawTemplate.source !== null
+      && typeof rawTemplate.source === 'object'
+      && typeof rawTemplate.source.kind === 'string'
+      ? { ...rawTemplate.source }
+      : { kind: 'user' }
+    const message = { ...rawTemplate, id, role: 'user', source: normalizedSource, content: [{ type: 'text', text }] }
 
     const first = preferFollowup ? 'followup' : 'steer'
     const second = preferFollowup ? 'steer' : 'followup'
@@ -305,7 +311,14 @@ export function createGateRouter({ tickets, breaker, im, getConfig, resolveAgent
       by: fromIm ? 'im' : 'desktop',
       note,
     })
-    if (settled.ok !== true && settled.already !== true) {
+    if (settled.already === true) {
+      if (fromIm) {
+        await reply(`[Flow] 票据 #${ticket.id} 已由其他端结算过，无需重复操作。`, 'Flow 遥控')
+      }
+      diag(`gate router duplicate-skip ticket=${ticket.id} fromIm=${fromIm}`)
+      return { kind: 'reject' }
+    }
+    if (settled.ok !== true) {
       if (!fromIm) return next()
       await reply(`[Flow] ${settled.reason ?? '结算失败'}`, 'Flow 遥控')
       return { kind: 'reject' }

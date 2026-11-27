@@ -175,12 +175,12 @@ export function createImChannel({ ctx, getConfig, getDshIm, getFeishu, logger })
     }
   }
 
-  async function send({ title, markdown, sessionId }) {
+  async function send({ title, markdown, sessionId, skipFeishu = false }) {
     const text = markdown.length > MAX_TEXT ? `${markdown.slice(0, MAX_TEXT - 1)}…` : markdown
     const reasons = []
 
-    // 1. 直连飞书优先（在线且启用时）
-    const feishu = typeof getFeishu === 'function' ? getFeishu() : undefined
+    // 1. 直连飞书优先（在线且启用且调用方未已通过 RemoteHub 发互动卡片时）
+    const feishu = skipFeishu ? undefined : (typeof getFeishu === 'function' ? getFeishu() : undefined)
     if (feishu !== undefined && typeof feishu.sendNotification === 'function' && feishu.isReady?.() === true) {
       try {
         const res = await feishu.sendNotification({ title, markdown: text, sessionId })

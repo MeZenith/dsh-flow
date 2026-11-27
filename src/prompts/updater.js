@@ -167,6 +167,38 @@ async function fetchText(url, signal) {
       headers: { 'user-agent': 'dsh-flow/prompt-updater' },
     })
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
+
+    // P1-11 修复：先校验 Content-Length 再流式限容读取，杜绝超大响应体全量入内存引发 OOM。
+    const contentLen = Number(response.headers?.get?.('content-length'))
+    if (Number.isFinite(contentLen) && contentLen > MAX_BYTES) {
+      try { await response.body?.cancel?.() } catch { /* 忽略 */ }
+      throw new Error(`文件过大（${contentLen} 字节）`)
+    }
+
+    if (response.body && typeof response.body.getReader === 'function') {
+      const reader = response.body.getReader()
+      const chunks = []
+      let totalBytes = 0
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          if (value === undefined || value === null) continue
+          const buf = Buffer.from(value)
+          totalBytes += buf.byteLength
+          if (totalBytes > MAX_BYTES) {
+            try { await reader.cancel() } catch { /* 忽略 */ }
+            controller.abort()
+            throw new Error(`文件过大（超过 ${MAX_BYTES} 字节上限）`)
+          }
+          chunks.push(buf)
+        }
+      } finally {
+        try { reader.releaseLock?.() } catch { /* 忽略 */ }
+      }
+      return Buffer.concat(chunks, totalBytes).toString('utf8')
+    }
+
     const text = await response.text()
     const byteLen = Buffer.byteLength(text, 'utf8')
     if (byteLen > MAX_BYTES) throw new Error(`文件过大（${byteLen} 字节）`)
@@ -309,6 +341,15 @@ export async function updatePrompts({ sourceUrl, root, signal, logger, allowMirr
   }
 
   result.ok = result.failed.length === 0
+  if (result.ok === true) {
+    // P1-11 修复：所有远端文件校验并落盘成功后，原子回写本地 manifest.json，确保版本号与防降级校验同步。
+    try {
+      writeAtomic(join(root, 'manifest.json'), manifestText)
+    } catch (error) {
+      result.failed.push({ path: 'manifest.json', reason: error instanceof Error ? error.message : String(error) })
+      result.ok = false
+    }
+  }
   if (result.ok !== true) {
     logger?.warn?.(`flow: 提示词更新有 ${result.failed.length} 个文件失败`)
   }
