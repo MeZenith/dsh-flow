@@ -204,9 +204,15 @@ test('M-11: notifier re-checks desktop activity when delayed timer fires', async
     email: { send: async () => ({ ok: true }) },
   })
   const handle = notifier.schedule('gate', { title: 't', project: 'p', markdown: 'm', session: { id: 's1' } })
-  // 模拟用户一直处于活跃状态（每次触发重查 idleMs 仍 < 50ms），超过 3 轮顺延应抑制不发
-  const result = await handle.done
-  assert.equal(result.suppressed, 'user-active')
-  assert.equal(sentCount, 0)
-  notifier.dispose()
+  // Node 22 的 test runner 在仅剩 unref() 定时器时会提前判定事件循环空闲并中止未决 Promise，因此测试期间持有一个短周期 keepalive。
+  const keepAlive = setInterval(() => {}, 25)
+  try {
+    // 模拟用户一直处于活跃状态（每次触发重查 idleMs 仍 < 50ms），超过 3 轮顺延应抑制不发
+    const result = await handle.done
+    assert.equal(result.suppressed, 'user-active')
+    assert.equal(sentCount, 0)
+  } finally {
+    clearInterval(keepAlive)
+    notifier.dispose()
+  }
 })
