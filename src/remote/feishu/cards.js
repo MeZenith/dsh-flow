@@ -527,7 +527,40 @@ export function wrapCodeFence(text) {
   return `${fence}\n${body}\n${fence}`
 }
 
-/** 9a. DSH 普通工具执行审批卡片（竞争式审批：手机或电脑任意一端先点即生效）。 */
+const HIGH_RISK_TOOL_RE = /^(?:bash|shell|exec|run_command|terminal|powershell|cmd|delete_file|remove_file|unlink|rmdir)$/i
+const HIGH_RISK_TEXT_RULES = Object.freeze([
+  { re: /\brm\s+-[a-z]*[rf][a-z]*/i, label: '递归强制删除 (rm)' },
+  { re: /\b(?:del\s+\/[fq]|rmdir\s+\/s|remove-item\b[^\n]*-recurse)/i, label: '强制删除文件/目录' },
+  { re: /\bgit\s+push\s+(?:--force(?:-with-lease)?|-f)\b/i, label: 'Git 强制推送' },
+  { re: /\bgit\s+(?:reset\s+--hard|clean\s+-[a-z]*f)/i, label: 'Git 破坏性清理/重置' },
+  { re: /\b(?:drop|truncate)\s+(?:table|database|schema)\b/i, label: '数据库删表/清库' },
+  { re: /\b(?:chmod\s+777|mkfs\b|shutdown\b|reg\s+delete)\b/i, label: '高危系统/权限指令' },
+  { re: /(?:curl|wget)[^\n|]*\|\s*(?:ba)?sh\b|\biex\s*\(/i, label: '远程脚本直接执行' },
+])
+
+/** 对 DSH 工具审批请求做风险分级，识别 Shell / 删文件 / 破坏性命令等高危操作。 */
+export function classifyApprovalRisk({ toolName = '', reason = '', input, summary = '' } = {}) {
+  const reasons = []
+  const cleanTool = String(toolName ?? '').trim()
+  if (HIGH_RISK_TOOL_RE.test(cleanTool)) {
+    reasons.push(`敏感工具 \`${cleanTool}\``)
+  }
+  let inputText = ''
+  if (typeof input === 'string') inputText = input
+  else if (input !== undefined && input !== null) {
+    try { inputText = JSON.stringify(input) } catch { inputText = '' }
+  }
+  const corpus = [reason, summary, inputText].filter(Boolean).join('\n')
+  for (const rule of HIGH_RISK_TEXT_RULES) {
+    if (rule.re.test(corpus)) reasons.push(rule.label)
+  }
+  return {
+    level: reasons.length > 0 ? 'high' : 'normal',
+    reasons: [...new Set(reasons)],
+  }
+}
+
+/** 9a. DSH 普通工具执行审批卡片（支持三档高危护栏：allow / pin / desktop-only）。 */
 export function buildToolApprovalCard({
   approvalId,
   project = '桌面会话',
@@ -535,35 +568,65 @@ export function buildToolApprovalCard({
   reason = '',
   summary = '',
   botAlias = DEFAULT_BOT_NAME,
+  risk,
+  highRiskPolicy = 'allow',
 }) {
   const safeReason = redactSensitiveText(reason)
   const safeSummary = redactSensitiveText(summary)
+  const isHighRisk = risk?.level === 'high'
+  const effectivePolicy = isHighRisk ? highRiskPolicy : 'allow'
+  const riskReasons = Array.isArray(risk?.reasons) && risk.reasons.length > 0
+    ? risk.reasons.join('、')
+    : ''
+
+  const policyNotice = effectivePolicy === 'desktop-only'
+    ? '🔒 已启用「高危仅桌面确认」：请回到桌面端确认放行，飞书仅可拒绝。'
+    : effectivePolicy === 'pin'
+      ? `🔐 已启用「高危 PIN 二次确认」：请回复 \`/approve ${approvalId} <PIN>\` 放行，或点下方拒绝。`
+      : ''
+
   const lines = [
     `**项目**：${project}　｜　**工具**：\`${toolName}\``,
+    isHighRisk ? `⚠️ **高危操作识别**：${riskReasons || '高风险动作'}` : '',
     safeReason ? `**说明**：${clip(safeReason, 400)}` : '',
     safeSummary ? `**操作内容**：\n${wrapCodeFence(clip(safeSummary, 700))}` : '',
+    policyNotice,
   ].filter(Boolean).join('\n')
+
+  const buttons = effectivePolicy === 'allow'
+    ? [
+      buttonEl({
+        text: '✅ 允许本次',
+        type: 'primary',
+        value: { kind: 'approval:decide', approvalId, decision: 'allowed-once' },
+      }),
+      buttonEl({
+        text: '❌ 拒绝',
+        type: 'danger',
+        value: { kind: 'approval:decide', approvalId, decision: 'rejected' },
+      }),
+    ]
+    : [
+      buttonEl({
+        text: '❌ 拒绝',
+        type: 'danger',
+        value: { kind: 'approval:decide', approvalId, decision: 'rejected' },
+      }),
+    ]
 
   return {
     schema: '2.0',
     config: { wide_screen_mode: true, update_multi: true },
-    header: cardHeader(`🔐 工具执行审批 · ${toolName}`, `${botAlias} · ${project}`, 'orange'),
+    header: cardHeader(
+      isHighRisk ? `⚠️ 高危工具执行审批 · ${toolName}` : `🔐 工具执行审批 · ${toolName}`,
+      `${botAlias} · ${project}`,
+      isHighRisk ? 'red' : 'orange',
+    ),
     body: {
       elements: [
         mdBlock(lines),
         { tag: 'hr' },
-        buttonColumnSet([
-          buttonEl({
-            text: '✅ 允许本次',
-            type: 'primary',
-            value: { kind: 'approval:decide', approvalId, decision: 'allowed-once' },
-          }),
-          buttonEl({
-            text: '❌ 拒绝',
-            type: 'danger',
-            value: { kind: 'approval:decide', approvalId, decision: 'rejected' },
-          }),
-        ]),
+        buttonColumnSet(buttons),
       ],
     },
   }

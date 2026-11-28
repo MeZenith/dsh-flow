@@ -138,6 +138,13 @@ const en = {
   'feishu.allowedUsersPlaceholder': 'Send /id to bot · required (empty blocks all)',
   'feishu.defaultChatId': 'Default Chat',
   'feishu.defaultChatIdPlaceholder': 'Auto-captured on first message',
+  'feishu.highRiskPolicy': 'High-Risk Tool Approvals',
+  'feishu.highRiskAllow': 'Allow Feishu',
+  'feishu.highRiskPin': 'Require PIN',
+  'feishu.highRiskDesktop': 'Desktop Only',
+  'feishu.approvalPin': 'High-Risk PIN',
+  'feishu.approvalPinPlaceholder': 'Short passphrase (leave blank to keep saved)',
+  'feishu.credFallbackWarn': 'Host encrypted credentials (ctx.credentials) unavailable; App Secret uses plain config or memory fallback.',
 
   'feishu.moreIdentity': 'Appearance & Credentials',
   'feishu.enabled': 'Auto-Connect',

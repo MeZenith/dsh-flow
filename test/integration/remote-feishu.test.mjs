@@ -13,6 +13,7 @@ import { splitMarkdownChunks } from '../../src/remote/feishu/reply-stream.js'
 import { createHarnessBridge } from '../../src/remote/harness-bridge.js'
 import { createRemoteHub } from '../../src/remote/hub.js'
 import { createFeishuCommander } from '../../src/remote/feishu/index.js'
+import { classifyApprovalRisk } from '../../src/remote/feishu/cards.js'
 import { createGateTickets } from '../../src/gates/tickets.js'
 import { createGateSettler } from '../../src/gates/settler.js'
 import { createGateRouter } from '../../src/gates/router.js'
@@ -791,6 +792,176 @@ test('Feishu v0.6.1 live regressions: sync agent/inbox/claimed race, workspaceId
       patchedMessages.some(p => p.data.content.includes('你好！北极星工作区已就绪。')),
       '真实同步 agent/inbox/claimed 时序下，AI 定稿回复必须成功回推到飞书卡片',
     )
+
+    await commander.dispose()
+    tickets.dispose()
+  } finally {
+    setFeishuSdkOverride(undefined)
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('Feishu v0.7.0 Phase 2.2 security: classifyApprovalRisk, 3-tier high-risk policy (desktop-only & PIN) and credential fallback notice', async () => {
+  assert.equal(classifyApprovalRisk({ toolName: 'bash', input: { command: 'ls' } }).level, 'high')
+  assert.equal(classifyApprovalRisk({ toolName: 'run_tool', summary: 'git push --force origin main' }).level, 'high')
+  assert.equal(classifyApprovalRisk({ toolName: 'custom', reason: 'rm -rf ./dist' }).level, 'high')
+  assert.equal(classifyApprovalRisk({ toolName: 'read_file', input: { path: 'README.md' } }).level, 'normal')
+
+  const root = mkdtempSync(join(tmpdir(), 'dsh-flow-feishu-sec-'))
+  const sentMessages = []
+  const patchedMessages = []
+  const warnings = []
+  let registeredHandlers = null
+
+  const mockSdk = {
+    Domain: { 0: 'Feishu', 1: 'Lark', Feishu: 0, Lark: 1 },
+    LoggerLevel: { warn: 3 },
+    Client: class MockClient {
+      async request(req) {
+        if (req.url === '/open-apis/bot/v3/info') return { code: 0, bot: { app_name: 'SecBot', avatar_url: '', open_id: 'ou_bot' } }
+        return { code: 0 }
+      }
+      im = {
+        v1: {
+          message: {
+            create: async (args) => {
+              const id = `om_${sentMessages.length + 1}`
+              sentMessages.push({ kind: 'create', id, ...args })
+              return { code: 0, data: { message_id: id } }
+            },
+            reply: async (args) => {
+              const id = `om_${sentMessages.length + 1}`
+              sentMessages.push({ kind: 'reply', id, ...args })
+              return { code: 0, data: { message_id: id } }
+            },
+            patch: async (args) => { patchedMessages.push(args); return { code: 0 } },
+          },
+        },
+      }
+    },
+    EventDispatcher: class { register(h) { registeredHandlers = h; return this } },
+    WSClient: class { async start() { return true } async close() { return true } },
+  }
+
+  setFeishuSdkOverride(mockSdk)
+  try {
+    const cfg = {
+      docs: { enabled: false },
+      gate: { persist: false },
+      circuit: { threshold: 3 },
+      feishu: {
+        enabled: true,
+        domain: 'feishu',
+        appId: 'cli_sec',
+        appSecret: 'sec_plain_fallback',
+        allowedOpenIds: ['ou_sec_owner'],
+        defaultChatId: 'oc_sec_chat',
+        pushOnApproval: true,
+        highRiskApprovalPolicy: 'desktop-only',
+        approvalPin: '8642',
+      },
+    }
+    const getConfig = () => cfg
+    const stateStore = createFlowStateStore({ filePath: join(root, 'state.json'), persist: false })
+    const agent = { id: 'ag-sec', session: { id: 'sess-sec', header: { cwd: '/work/sec' } }, followup() {}, cancel() {} }
+    const tickets = createGateTickets({ getConfig })
+    const settler = createGateSettler({ getConfig, switchMode: async () => ({ label: 'flow', notes: [] }), tickets, resolveAgent: () => agent })
+    const gateRouter = createGateRouter({ tickets, getConfig, resolveAgent: () => agent, settler })
+    const breaker = { isLocked: () => false, listTrips: () => [], resolveRemoteAction: async () => ({ ok: true }) }
+    const bridge = createHarnessBridge({
+      ctx: { agents: { list: () => [agent] } },
+      readMode: () => 'flow',
+      resolveAgent: () => agent,
+      switchMode: async () => ({ label: 'flow', notes: [] }),
+      tickets,
+      breaker,
+      stateStore,
+    })
+    const hub = createRemoteHub({ bridge, tickets, settler, gateRouter, breaker, getConfig })
+    const commander = createFeishuCommander({
+      hub,
+      getConfig,
+      // 故意不传 getCredentials，触发明文配置回退告警
+      stateStore,
+      logger: { warn: msg => warnings.push(msg), info() {} },
+    })
+
+    await commander.connect()
+    const st = await commander.status()
+    assert.equal(st.credentialStorage, 'config')
+    assert.equal(st.credentialFallback, true)
+    assert.ok(warnings.some(w => w.includes('降级存储')))
+
+    // 1. desktop-only 策略：高危审批卡隐藏「允许」按钮，且即使伪造 allowed-once 回调也会被服务端拦截；拒绝仍可用
+    const desktopOnlyPromise = commander.handleApprovalRequest({
+      agent,
+      toolName: 'bash',
+      reason: '清理编译目录',
+      input: { command: 'rm -rf ./dist' },
+      signal: new AbortController().signal,
+    }, () => new Promise(() => {}))
+    await new Promise(r => setTimeout(r, 30))
+
+    const desktopCard = sentMessages.find(m => m.data.content.includes('高危工具执行审批'))
+    assert.ok(desktopCard !== undefined)
+    assert.ok(desktopCard.data.content.includes('高危仅桌面确认'))
+    assert.ok(!desktopCard.data.content.includes('allowed-once'))
+
+    const parsedDesk = JSON.parse(desktopCard.data.content)
+    const rejectBtn = parsedDesk.body.elements.find(el => el.tag === 'column_set').columns[0].elements[0]
+    const apprId1 = rejectBtn.behaviors[0].value.approvalId
+
+    const forgedAck = await registeredHandlers['card.action.trigger']({
+      event_id: 'ev-forged-allow',
+      operator: { open_id: 'ou_sec_owner' },
+      context: { open_chat_id: 'oc_sec_chat', open_message_id: desktopCard.id },
+      action: { value: { kind: 'approval:decide', approvalId: apprId1, decision: 'allowed-once' } },
+    })
+    assert.equal(forgedAck.toast.type, 'error')
+    assert.ok(forgedAck.toast.content.includes('禁止在飞书放行高危操作'))
+
+    const rejectAck = await registeredHandlers['card.action.trigger']({
+      event_id: 'ev-reject-desk',
+      operator: { open_id: 'ou_sec_owner' },
+      context: { open_chat_id: 'oc_sec_chat', open_message_id: desktopCard.id },
+      action: { value: { kind: 'approval:decide', approvalId: apprId1, decision: 'rejected' } },
+    })
+    assert.equal(rejectAck.toast.type, 'info')
+    assert.equal(await desktopOnlyPromise, 'rejected')
+
+    // 2. pin 策略：高危操作需回复 /approve <id> <PIN>，错误 PIN 拒绝、正确 PIN 放行且绝不回显 PIN
+    cfg.feishu.highRiskApprovalPolicy = 'pin'
+    const pinPromise = commander.handleApprovalRequest({
+      agent,
+      toolName: 'shell',
+      reason: '强制同步分支',
+      input: { command: 'git push --force' },
+      signal: new AbortController().signal,
+    }, () => new Promise(() => {}))
+    await new Promise(r => setTimeout(r, 30))
+
+    const pinCard = sentMessages.filter(m => m.data.content.includes('高危 PIN 二次确认')).pop()
+    assert.ok(pinCard !== undefined)
+    const parsedPin = JSON.parse(pinCard.data.content)
+    const apprId2 = parsedPin.body.elements.find(el => el.tag === 'column_set').columns[0].elements[0].behaviors[0].value.approvalId
+
+    await registeredHandlers['im.message.receive_v1']({
+      event_id: 'ev-bad-pin',
+      sender: { sender_id: { open_id: 'ou_sec_owner' } },
+      message: { message_id: 'm-bad-pin', chat_id: 'oc_sec_chat', chat_type: 'p2p', message_type: 'text', content: JSON.stringify({ text: `/approve ${apprId2} 0000` }) },
+    })
+    assert.ok(sentMessages[sentMessages.length - 1].data.content.includes('PIN 校验失败'))
+
+    await registeredHandlers['im.message.receive_v1']({
+      event_id: 'ev-good-pin',
+      sender: { sender_id: { open_id: 'ou_sec_owner' } },
+      message: { message_id: 'm-good-pin', chat_id: 'oc_sec_chat', chat_type: 'p2p', message_type: 'text', content: JSON.stringify({ text: `/approve ${apprId2} 8642` }) },
+    })
+    assert.equal(await pinPromise, 'allowed-once')
+    const pinReply = sentMessages[sentMessages.length - 1].data.content
+    assert.ok(pinReply.includes('已验证 PIN'))
+    assert.ok(!pinReply.includes('8642'), 'PIN 回复绝不能回显明文 PIN')
+    assert.ok(patchedMessages.some(p => p.path.message_id === pinCard.id && p.data.content.includes('已允许执行')))
 
     await commander.dispose()
     tickets.dispose()

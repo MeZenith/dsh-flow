@@ -14,12 +14,13 @@
  *
  * @module dsh-flow/remote/feishu
  */
-import { randomUUID } from 'node:crypto'
+import { randomUUID, timingSafeEqual } from 'node:crypto'
 import { createFeishuClient, inferReceiveIdType } from './client.js'
 import { createFeishuOnboarding, createFeishuSecretStore, verifyFeishuCredentials } from './onboarding.js'
 import { createFeishuRouter } from './router.js'
 import { createFeishuReplyStreamer } from './reply-stream.js'
 import { syncFeishuSlashCommands } from './slash-commands.js'
+import { HIGH_RISK_APPROVAL_POLICIES } from '../../config/constants.js'
 import {
   buildBrakeCard,
   buildBrakeResolvedCard,
@@ -30,6 +31,7 @@ import {
   buildToolApprovalCard,
   buildToolApprovalResolvedCard,
   buildWelcomeCard,
+  classifyApprovalRisk,
   redactSensitiveText,
   redactSensitiveValue,
 } from './cards.js'
@@ -49,7 +51,7 @@ import { projectNameOfCwd } from '../../shared/message.js'
  * }} deps
  */
 export function createFeishuCommander({ hub, getConfig, getCredentials, stateStore, logger, diag = () => {} }) {
-  const secretStore = createFeishuSecretStore({ getCredentials, getConfig })
+  const secretStore = createFeishuSecretStore({ getCredentials, getConfig, logger })
   const savedMeta = stateStore?.getFeishuMeta?.() ?? {}
   // 升级兜底：若尚未记录 lastPrivateChatId，从持久化 feishuFocus 中挑最近活跃的一条私聊 chatId 作为初始目标。
   function latestFocusPrivateChatId() {
@@ -105,6 +107,10 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
       pushOnBrake: cfg.pushOnBrake !== false,
       pushOnComplete: cfg.pushOnComplete !== false,
       pushOnApproval: cfg.pushOnApproval !== false,
+      highRiskApprovalPolicy: HIGH_RISK_APPROVAL_POLICIES.includes(cfg.highRiskApprovalPolicy)
+        ? cfg.highRiskApprovalPolicy
+        : 'allow',
+      approvalPin: String(cfg.approvalPin ?? '').trim(),
       syncDesktopReplies: cfg.syncDesktopReplies === true,
       sendDocFiles: cfg.sendDocFiles !== false,
     }
@@ -204,10 +210,31 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
     diag,
   })
 
-  /** 结算一条挂起的 DSH 工具审批（由飞书卡片按钮触发）。 */
-  function resolveApproval({ approvalId, decision, by = 'feishu' }) {
+  function matchesPin(provided, expected) {
+    const a = Buffer.from(String(provided ?? '').trim(), 'utf8')
+    const b = Buffer.from(String(expected ?? '').trim(), 'utf8')
+    if (a.length === 0 || b.length === 0 || a.length !== b.length) return false
+    return timingSafeEqual(a, b)
+  }
+
+  /** 结算一条挂起的 DSH 工具审批（由飞书卡片按钮或 /approve PIN 指令触发）。 */
+  function resolveApproval({ approvalId, decision, by = 'feishu', pin = '' }) {
     const entry = pendingApprovals.get(approvalId)
     if (!entry) return { ok: false, reason: '该审批已被处理或已过期' }
+    if (by === 'feishu' && decision === 'allowed-once' && entry.risk?.level === 'high') {
+      if (entry.policy === 'desktop-only') {
+        return { ok: false, reason: '当前策略禁止在飞书放行高危操作，请回到桌面端确认' }
+      }
+      if (entry.policy === 'pin') {
+        const expectedPin = settings().approvalPin
+        if (expectedPin === '') {
+          return { ok: false, reason: '尚未设置高危审批 PIN，请在设置页填写 PIN 或回到桌面端确认' }
+        }
+        if (!matchesPin(pin, expectedPin)) {
+          return { ok: false, reason: 'PIN 校验失败，已拒绝放行' }
+        }
+      }
+    }
     const settled = entry.settle(decision, by)
     return settled ? { ok: true } : { ok: false, reason: '该审批已被处理' }
   }
@@ -526,7 +553,11 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
     }, timeoutMs)
     if (typeof timeoutTimer.unref === 'function') timeoutTimer.unref()
 
-    pendingApprovals.set(approvalId, { settle, onFeishuUnavailable, project, toolName })
+    const rawInput = request?.input ?? request?.args ?? request?.params
+    const risk = classifyApprovalRisk({ toolName, reason, input: rawInput, summary })
+    const policy = s.highRiskApprovalPolicy
+
+    pendingApprovals.set(approvalId, { settle, onFeishuUnavailable, project, toolName, risk, policy })
 
     // 1. 竞争拉起桌面原生审批
     Promise.resolve()
@@ -553,6 +584,8 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
       reason,
       summary,
       botAlias: displayAlias(),
+      risk,
+      highRiskPolicy: policy,
     })
     const target = chatId !== '' ? chatId : fallbackOpenId
     const receiveIdType = chatId !== '' ? 'chat_id' : 'open_id'
@@ -654,11 +687,14 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
     const s = settings()
     const ws = client.status()
     const hasSecret = (await secretStore.load()) !== ''
+    const storage = secretStore.storageInfo()
     return {
       ...ws,
       enabled: s.enabled,
       appId: s.appId || ws.appId,
       hasSecret,
+      credentialStorage: storage.mode,
+      credentialFallback: storage.isFallback,
       domain: s.domain,
       botName: botProfile.name || s.botName,
       botAvatarUrl: botProfile.avatarUrl || s.botAvatarUrl,

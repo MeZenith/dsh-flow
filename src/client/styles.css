@@ -625,6 +625,11 @@
   color: var(--dsw-alias-state-error-primary);
   background: transparent;
 }
+.dsh-flow-toast-warn {
+  border-color: var(--dsw-alias-state-warning-primary, #d97706);
+  color: var(--dsw-alias-state-warning-primary, #b45309);
+  background: transparent;
+}
 .dsh-flow-hint { color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 17px; }
 .dsh-flow-empty { padding: 20px 14px; text-align: center; color: var(--dsw-alias-label-tertiary); font-size: 12.5px; }
 .dsh-flow-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

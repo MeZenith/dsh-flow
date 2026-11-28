@@ -44,6 +44,7 @@ export const NOTIFY_STRATEGIES = Object.freeze(['im-first', 'email-first', 'both
 export const NOTIFY_EVENTS = Object.freeze(['brake', 'gate', 'team', 'archive', 'qa', 'doc', 'gate-timeout'])
 export const SMTP_PROVIDERS = Object.freeze(['qq', 'netease', 'gmail', 'custom'])
 export const FEISHU_DOMAINS = Object.freeze(['feishu', 'lark'])
+export const HIGH_RISK_APPROVAL_POLICIES = Object.freeze(['allow', 'pin', 'desktop-only'])
 
 /** 邮件主题状态标签（已统一合并 v0.5+ 新增事件）。 */
 export const NOTIFY_SUBJECT_TAG = Object.freeze({

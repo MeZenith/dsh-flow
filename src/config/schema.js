@@ -12,7 +12,7 @@
 import z from '../../vendor/schemastery.mjs'
 import { isVolatile } from '../../vendor/cosmokit.mjs'
 import {
-  AUTONOMY_CHOICES, FEISHU_DOMAINS, LEVEL_IDS, MODE_IDS, MODE_PRESETS,
+  AUTONOMY_CHOICES, FEISHU_DOMAINS, HIGH_RISK_APPROVAL_POLICIES, LEVEL_IDS, MODE_IDS, MODE_PRESETS,
   NOTIFY_STRATEGIES, PERMISSION_CHOICES, SMTP_PROVIDERS,
 } from './constants.js'
 import { DEFAULT_SOURCE_URL } from '../prompts/updater.js'
@@ -153,6 +153,8 @@ const FEISHU_DEFAULTS = Object.freeze({
   pushOnBrake: true,
   pushOnComplete: true,
   pushOnApproval: true,
+  highRiskApprovalPolicy: 'allow',
+  approvalPin: '',
   syncDesktopReplies: false,
   sendDocFiles: true,
 })
@@ -257,6 +259,8 @@ export const Config = z.object({
     pushOnBrake: z.boolean().default(true),
     pushOnComplete: z.boolean().default(true),
     pushOnApproval: z.boolean().default(true),
+    highRiskApprovalPolicy: z.union(HIGH_RISK_APPROVAL_POLICIES).default('allow'),
+    approvalPin: z.string().role('secret').default(''),
     syncDesktopReplies: z.boolean().default(false),
     sendDocFiles: z.boolean().default(true),
   }).default({ ...FEISHU_DEFAULTS, allowedOpenIds: [] }).volatile(),

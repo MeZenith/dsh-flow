@@ -141,6 +141,13 @@ const zh = {
   'feishu.allowedUsersPlaceholder': '发 /id 获取；未填写时默认拦截所有指令',
   'feishu.defaultChatId': '默认会话',
   'feishu.defaultChatIdPlaceholder': '首次发消息自动记住',
+  'feishu.highRiskPolicy': '高危工具审批策略',
+  'feishu.highRiskAllow': '飞书直批',
+  'feishu.highRiskPin': 'PIN 二次确认',
+  'feishu.highRiskDesktop': '仅桌面确认',
+  'feishu.approvalPin': '高危审批 PIN',
+  'feishu.approvalPinPlaceholder': '设置 4–16 位短口令；留空保留已保存 PIN',
+  'feishu.credFallbackWarn': '当前宿主未提供安全凭据库（ctx.credentials），App Secret 正在使用明文配置或内存降级存储。',
 
   'feishu.moreIdentity': '外观与凭证',
   'feishu.enabled': '开机自动连接',

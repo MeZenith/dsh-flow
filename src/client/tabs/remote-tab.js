@@ -261,6 +261,15 @@ function RemoteTab({ value, disabled, setField, t, onFeishuState }) {
   const allowedLine = allowedList.join(', ')
   const hasTarget = allowedList.length > 0 || String(feishuCfg.defaultChatId || feishuStatus?.defaultChatId || '').trim() !== ''
 
+  const highRiskOptions = [
+    { value: 'allow', label: t('feishu.highRiskAllow') },
+    { value: 'pin', label: t('feishu.highRiskPin') },
+    { value: 'desktop-only', label: t('feishu.highRiskDesktop') },
+  ]
+  const highRiskPolicy = feishuCfg.highRiskApprovalPolicy === 'pin' || feishuCfg.highRiskApprovalPolicy === 'desktop-only'
+    ? feishuCfg.highRiskApprovalPolicy
+    : 'allow'
+
   const regionOptions = [
     { value: 'feishu', label: t('feishu.regionFeishu') },
     { value: 'lark', label: t('feishu.regionLark') },
@@ -652,6 +661,9 @@ function RemoteTab({ value, disabled, setField, t, onFeishuState }) {
           }))),
 
       h(SectionGroup, { title: t('feishu.secSecurity') },
+        feishuStatus?.credentialFallback === true
+          ? h('div', { className: 'dsh-flow-toast dsh-flow-toast-warn', role: 'status' }, t('feishu.credFallbackWarn'))
+          : null,
         h(SettingRow, { title: t('feishu.allowedUsers'), wideControl: true },
           h(TextField, {
             value: allowedLine,
@@ -668,7 +680,26 @@ function RemoteTab({ value, disabled, setField, t, onFeishuState }) {
             disabled,
             placeholder: t('feishu.defaultChatIdPlaceholder'),
             onCommit: next => { setField(['feishu', 'defaultChatId'], next.trim()) },
-          }))),
+          })),
+        h(SettingRow, { title: t('feishu.highRiskPolicy') },
+          h(SegmentedControl, {
+            value: highRiskPolicy,
+            options: highRiskOptions,
+            disabled,
+            ariaLabel: t('feishu.highRiskPolicy'),
+            onChange: next => { setField(['feishu', 'highRiskApprovalPolicy'], next) },
+          })),
+        highRiskPolicy === 'pin'
+          ? h(SettingRow, { title: t('feishu.approvalPin'), wideControl: true },
+            h(TextField, {
+              value: '',
+              type: 'password',
+              ignoreEmptyCommit: true,
+              disabled,
+              placeholder: t('feishu.approvalPinPlaceholder'),
+              onCommit: next => { setField(['feishu', 'approvalPin'], next.trim()) },
+            }))
+          : null),
 
       h(DisclosureGroup, {
         title: t('feishu.guideTitle'),

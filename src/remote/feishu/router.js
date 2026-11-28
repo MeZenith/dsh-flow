@@ -269,6 +269,24 @@ export function createFeishuRouter({
       return
     }
 
+    // 5c. 高危工具审批 PIN 二次确认：`/approve <approvalId> <pin>`（严禁在回复中回显 PIN）
+    const approveMatch = /^\/approve\s+([a-z0-9-]+)\s+(\S+)$/i.exec(text)
+    if (approveMatch !== null) {
+      const approvalId = approveMatch[1]
+      const res = resolveApproval?.({
+        approvalId,
+        decision: 'allowed-once',
+        by: 'feishu',
+        pin: approveMatch[2],
+      })
+      await client.sendText(
+        chatId,
+        res?.ok ? `✅ 已验证 PIN 并放行审批 \`${approvalId}\`。` : `❌ ${res?.reason || '审批放行失败'}`,
+        { replyToMessageId: messageId },
+      )
+      return
+    }
+
     // 6. 中止当前回合：`/stop` 或 `/cancel`
     if (/^\/(?:stop|cancel)$/i.test(lower) || text === '停止') {
       const focus = getBinding(bindKey, isGroup)
@@ -602,7 +620,12 @@ export function createFeishuRouter({
           },
         }
       }
-      return { toast: { type: 'info', content: outcome?.reason || '该审批已被处理或已过期' } }
+      return {
+        toast: {
+          type: decision === 'allowed-once' ? 'error' : 'info',
+          content: outcome?.reason || '该审批已被处理或已过期',
+        },
+      }
     }
 
     if (kind === 'focus:session' || kind === 'focus:workspace') {

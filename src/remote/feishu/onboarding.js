@@ -62,24 +62,38 @@ export function formatOnboardingError(error) {
 export const FEISHU_SECRET_CRED_REF = 'DSH_FLOW_FEISHU_APP_SECRET'
 
 /**
- * 读取/保存 AppSecret（优先宿主 `ctx.credentials` 的 `resolve/set/unset`，不可用时走配置/内存回退）。
+ * 读取/保存 AppSecret（优先宿主 `ctx.credentials` 的 `resolve/set/unset`，不可用时走配置/内存回退并记告警）。
  *
- * @param {{ getCredentials?: () => object | undefined, getConfig: () => object }} deps
+ * @param {{ getCredentials?: () => object | undefined, getConfig: () => object, logger?: { warn?: Function } }} deps
  */
-export function createFeishuSecretStore({ getCredentials, getConfig }) {
+export function createFeishuSecretStore({ getCredentials, getConfig, logger }) {
   let memorySecret = ''
+  let storageMode = 'none' // 'credentials' | 'config' | 'memory' | 'none'
+  let fallbackWarned = false
+
+  function warnFallback(reason) {
+    if (fallbackWarned) return
+    fallbackWarned = true
+    logger?.warn?.(`flow: 飞书 AppSecret 正在使用降级存储（${reason}）；建议在支持 ctx.credentials 的 DSH 环境下运行以获得加密存储。`)
+  }
 
   async function save(secret) {
     const clean = String(secret ?? '').trim()
     memorySecret = clean
-    if (clean === '') return { stored: 'empty' }
+    if (clean === '') {
+      storageMode = 'none'
+      return { stored: 'empty' }
+    }
     try {
       const creds = getCredentials?.()
       if (creds !== undefined && typeof creds.set === 'function') {
         await creds.set(FEISHU_SECRET_CRED_REF, clean)
+        storageMode = 'credentials'
         return { stored: 'credentials' }
       }
-    } catch { /* 宿主凭据服务不可用时回退内存/配置 */ }
+    } catch { /* 宿主凭据服务不可用时回退内存/配置并记一次性告警 */ }
+    storageMode = 'memory'
+    warnFallback('宿主 ctx.credentials 不可用，仅暂存于进程内存')
     return { stored: 'memory' }
   }
 
@@ -97,24 +111,31 @@ export function createFeishuSecretStore({ getCredentials, getConfig }) {
           const val = typeof resolved === 'string' ? resolved : resolved?.value
           if (typeof val === 'string' && val.trim() !== '') {
             memorySecret = val.trim()
+            storageMode = 'credentials'
             return memorySecret
           }
         } else if (typeof creds.get === 'function') {
           const val = await creds.get(FEISHU_SECRET_CRED_REF)
           if (typeof val === 'string' && val.trim() !== '') {
             memorySecret = val.trim()
+            storageMode = 'credentials'
             return memorySecret
           }
         }
       }
-    } catch { /* 忽略 */ }
+    } catch { /* 回落配置中的 appSecret */ }
     const fromConfig = String(getConfig?.()?.feishu?.appSecret ?? '').trim()
-    if (fromConfig !== '') return fromConfig
+    if (fromConfig !== '') {
+      storageMode = 'config'
+      warnFallback('当前从明文配置读取 appSecret')
+      return fromConfig
+    }
     return ''
   }
 
   async function clear() {
     memorySecret = ''
+    storageMode = 'none'
     try {
       const creds = getCredentials?.()
       if (creds !== undefined) {
@@ -124,10 +145,17 @@ export function createFeishuSecretStore({ getCredentials, getConfig }) {
           await creds.delete(FEISHU_SECRET_CRED_REF)
         }
       }
-    } catch { /* 忽略 */ }
+    } catch { /* dispose-path */ }
   }
 
-  return { save, load, clear }
+  function storageInfo() {
+    return {
+      mode: storageMode,
+      isFallback: storageMode === 'config' || storageMode === 'memory',
+    }
+  }
+
+  return { save, load, clear, storageInfo }
 }
 
 /**
