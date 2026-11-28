@@ -15,6 +15,7 @@ import {
   AUTONOMY_CHOICES, FEISHU_DOMAINS, LEVEL_IDS, MODE_IDS, MODE_PRESETS,
   NOTIFY_STRATEGIES, PERMISSION_CHOICES, SMTP_PROVIDERS,
 } from './constants.js'
+import { DEFAULT_SOURCE_URL } from '../prompts/updater.js'
 
 export const DEFAULT_SPEC_PATH = '.flow/spec.md'
 
@@ -186,11 +187,11 @@ export const Config = z.object({
   }).default({ enabled: true, threshold: 3, rescueModel: '', idleSeconds: 120, debugLog: false }).volatile(),
 
   prompts: z.object({
-    sourceUrl: z.string().default('https://raw.githubusercontent.com/MeZenith/dsh-flow/main/prompts'),
+    sourceUrl: z.string().default(DEFAULT_SOURCE_URL),
     allowMirrorFallback: z.boolean().default(true),
     customDir: z.string().default(''),
   }).default({
-    sourceUrl: 'https://raw.githubusercontent.com/MeZenith/dsh-flow/main/prompts',
+    sourceUrl: DEFAULT_SOURCE_URL,
     allowMirrorFallback: true,
     customDir: '',
   }).volatile(),

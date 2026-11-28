@@ -1,6 +1,8 @@
 {
   "version": "0.6.1",
-  "updatedAt": "2026-11-27T13:46:44.924Z",
+  "minPluginVersion": "0.6.0",
+  "maxPluginVersion": "0.6.99",
+  "updatedAt": "2026-11-28T08:58:05.451Z",
   "files": [
     {
       "path": "base.md",

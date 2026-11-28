@@ -10,7 +10,7 @@ import { createPromptApi } from '../../src/prompts/api.js'
 import { attachAgentModeContext } from '../../src/prompts/bridge.js'
 import { rememberLevel } from '../../src/workflow/level.js'
 import { createFlowStateStore } from '../../src/shared/state-store.js'
-import { updatePrompts } from '../../src/prompts/updater.js'
+import { DEFAULT_SOURCE_URL, MIRROR_SOURCES, PLUGIN_VERSION, checkPluginCompatibility, updatePrompts } from '../../src/prompts/updater.js'
 import { createHash } from 'node:crypto'
 
 function fakeReq({ method = 'GET', url = '/api/dsh-flow/prompts', host = '127.0.0.1:3080', origin, contentType, remoteAddress = '127.0.0.1', body } = {}) {
@@ -169,7 +169,7 @@ test('M-08: prompt-updater allows plugin installed under path containing "custom
   const hash = createHash('sha256').update(fileText, 'utf8').digest('hex')
   globalThis.fetch = async (url) => {
     if (String(url).endsWith('/manifest.json')) {
-      return new Response(JSON.stringify({ version: '9.9.9', updatedAt: '2099-01-01T00:00:00.000Z', files: [{ path: 'base.md', sha256: hash }] }), { status: 200 })
+      return new Response(JSON.stringify({ version: '0.6.99', minPluginVersion: '0.6.0', maxPluginVersion: '0.6.99', updatedAt: '2099-01-01T00:00:00.000Z', files: [{ path: 'base.md', sha256: hash }] }), { status: 200 })
     }
     if (String(url).endsWith('/base.md')) {
       return new Response(fileText, { status: 200 })
@@ -180,6 +180,47 @@ test('M-08: prompt-updater allows plugin installed under path containing "custom
     const res = await updatePrompts({ sourceUrl: 'https://example.test/prompts', root: promptsRoot, allowMirrorFallback: false })
     assert.equal(res.ok, true)
     assert.deepEqual(res.updated, ['base.md'])
+  } finally {
+    globalThis.fetch = origFetch
+    rmSync(baseDir, { recursive: true, force: true })
+  }
+})
+
+test('prompt-updater pins default sources to release tag and enforces plugin compatibility bounds', async () => {
+  assert.ok(DEFAULT_SOURCE_URL.endsWith(`/v${PLUGIN_VERSION}/prompts`), `DEFAULT_SOURCE_URL must pin v${PLUGIN_VERSION}`)
+  assert.ok(!DEFAULT_SOURCE_URL.includes('/main/'))
+  assert.ok(MIRROR_SOURCES.every(url => url.includes(`v${PLUGIN_VERSION}`)))
+
+  assert.equal(checkPluginCompatibility({ version: '0.6.5', minPluginVersion: '0.6.0', maxPluginVersion: '0.6.99' }, '0.6.1').ok, true)
+  assert.equal(checkPluginCompatibility({ version: '0.6.5', minPluginVersion: '0.7.0' }, '0.6.1').ok, false)
+  assert.equal(checkPluginCompatibility({ version: '0.6.5', maxPluginVersion: '0.6.0' }, '0.6.1').ok, false)
+  assert.equal(checkPluginCompatibility({ version: '0.7.0' }, '0.6.1').ok, false)
+
+  const baseDir = mkdtempSync(join(tmpdir(), 'dsh-flow-compat-'))
+  const origFetch = globalThis.fetch
+  const body = '# new rules\n'
+  const digest = createHash('sha256').update(body, 'utf8').digest('hex')
+  try {
+    globalThis.fetch = async (url) => {
+      if (String(url).endsWith('/manifest.json')) {
+        return new Response(JSON.stringify({
+          version: '0.7.0',
+          minPluginVersion: '0.7.0',
+          updatedAt: '2099-01-01T00:00:00.000Z',
+          files: [{ path: 'base.md', sha256: digest }],
+        }), { status: 200 })
+      }
+      return new Response(body, { status: 200 })
+    }
+    const rejected = await updatePrompts({
+      sourceUrl: 'https://example.test/prompts',
+      root: baseDir,
+      allowMirrorFallback: false,
+      pluginVersion: '0.6.1',
+    })
+    assert.equal(rejected.ok, false)
+    assert.equal(rejected.incompatible, true)
+    assert.ok(String(rejected.reason ?? '').includes('0.7.0'))
   } finally {
     globalThis.fetch = origFetch
     rmSync(baseDir, { recursive: true, force: true })

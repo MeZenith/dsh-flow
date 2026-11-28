@@ -866,7 +866,7 @@ test('P1-11: prompt updater writes local manifest.json on success and rejects ov
   try {
     const body = '# updated base\n'
     const digest = createHash('sha256').update(body, 'utf8').digest('hex')
-    const manifestObj = { version: '9.9.9', updatedAt: '2099-01-01T00:00:00.000Z', files: [{ path: 'base.md', sha256: digest }] }
+    const manifestObj = { version: '0.6.99', minPluginVersion: '0.6.0', maxPluginVersion: '0.6.99', updatedAt: '2099-01-01T00:00:00.000Z', files: [{ path: 'base.md', sha256: digest }] }
 
     globalThis.fetch = async (url) => {
       if (String(url).endsWith('/manifest.json')) {
@@ -877,7 +877,7 @@ test('P1-11: prompt updater writes local manifest.json on success and rejects ov
     const okRes = await updatePrompts({ sourceUrl: 'https://example.test/prompts', root, allowMirrorFallback: false })
     assert.equal(okRes.ok, true)
     assert.equal(existsSync(join(root, 'manifest.json')), true)
-    assert.equal(JSON.parse(readFileSync(join(root, 'manifest.json'), 'utf8')).version, '9.9.9')
+    assert.equal(JSON.parse(readFileSync(join(root, 'manifest.json'), 'utf8')).version, '0.6.99')
 
     // 流式超限响应：超过 512KB 在流读取中途立即中断报错
     const hugeChunk = new Uint8Array(200 * 1024)

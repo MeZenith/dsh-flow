@@ -13,12 +13,17 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { writeAtomic } from '../shared/fs-safe.js'
 
-/** 官方默认源（raw.githubusercontent 的 prompts 目录）。 */
-export const DEFAULT_SOURCE_URL = 'https://raw.githubusercontent.com/MeZenith/dsh-flow/main/prompts'
+const PKG_META = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
+
+/** 当前插件版本号（用于绑定默认提示词 Release Tag 与上下界校验）。 */
+export const PLUGIN_VERSION = String(PKG_META?.version ?? '0.0.0').trim()
+
+/** 官方默认源（锁定至当前插件发布 Tag，避免直接跟踪可变 main 分支）。 */
+export const DEFAULT_SOURCE_URL = `https://raw.githubusercontent.com/MeZenith/dsh-flow/v${PLUGIN_VERSION}/prompts`
 
 /** 内置镜像源，按顺序兜底。 */
 export const MIRROR_SOURCES = Object.freeze([
-  'https://cdn.jsdelivr.net/gh/MeZenith/dsh-flow@main/prompts',
+  `https://cdn.jsdelivr.net/gh/MeZenith/dsh-flow@v${PLUGIN_VERSION}/prompts`,
   DEFAULT_SOURCE_URL,
 ])
 
@@ -228,7 +233,52 @@ export function validateManifest(value) {
   return { ok: true, files: out }
 }
 
-export async function updatePrompts({ sourceUrl, root, signal, logger, allowMirrorFallback = true }) {
+/**
+ * 校验远端提示词清单是否兼容当前插件版本（防跨代/不兼容行为指令注入）。
+ *
+ * - 若显式声明 `minPluginVersion` / `maxPluginVersion`，严格按区间校验；
+ * - 若未声明 `maxPluginVersion`，则拒绝 `major` 或 `minor` 高于当前插件版本的清单。
+ */
+export function checkPluginCompatibility(manifest, currentVersion = PLUGIN_VERSION) {
+  const current = String(currentVersion ?? PLUGIN_VERSION).trim()
+  const curParts = parseVersion(current)
+  if (curParts.length < 2) return { ok: true }
+
+  const minVer = typeof manifest?.minPluginVersion === 'string' ? manifest.minPluginVersion.trim() : ''
+  if (minVer !== '' && compareVersion(current, minVer) < 0) {
+    return {
+      ok: false,
+      reason: `远端提示词要求插件最低版本 ${minVer}（当前为 ${current}），请先升级 dsh-flow 插件`,
+    }
+  }
+
+  const maxVer = typeof manifest?.maxPluginVersion === 'string' ? manifest.maxPluginVersion.trim() : ''
+  if (maxVer !== '') {
+    if (compareVersion(current, maxVer) > 0) {
+      return {
+        ok: false,
+        reason: `远端提示词最高仅支持插件 ${maxVer}（当前为 ${current}），已拒绝不兼容更新`,
+      }
+    }
+    return { ok: true }
+  }
+
+  const remoteVer = typeof manifest?.version === 'string' ? manifest.version.trim() : ''
+  const remParts = parseVersion(remoteVer)
+  if (remParts.length >= 2) {
+    const newerBranch = remParts[0] > curParts[0]
+      || (remParts[0] === curParts[0] && remParts[1] > curParts[1])
+    if (newerBranch) {
+      return {
+        ok: false,
+        reason: `远端提示词版本 ${remoteVer} 超出当前插件 ${current} 的兼容次版本范围，请先升级插件`,
+      }
+    }
+  }
+  return { ok: true }
+}
+
+export async function updatePrompts({ sourceUrl, root, signal, logger, allowMirrorFallback = true, pluginVersion = PLUGIN_VERSION }) {
   const chain = buildSourceChain(sourceUrl, allowMirrorFallback)
   const requested = chain[0]
   const result = {
@@ -273,7 +323,7 @@ export async function updatePrompts({ sourceUrl, root, signal, logger, allowMirr
     let mirrorHost = base
     try { mirrorHost = new URL(base).host } catch { /* 原样展示 */ }
     result.mirrorHost = mirrorHost
-    result.note = `主源不可达，已自动切换到镜像 ${mirrorHost}（jsDelivr 对 @main 有 CDN 缓存延迟，刚推送的改动可能尚未同步）。`
+    result.note = `主源不可达，已自动切换到镜像 ${mirrorHost}。`
     logger?.info?.(`flow: 主源不可达，已切换到镜像 ${mirrorHost} → ${base}`)
   }
 
@@ -288,6 +338,13 @@ export async function updatePrompts({ sourceUrl, root, signal, logger, allowMirr
   const checked = validateManifest(manifest)
   if (checked.ok !== true) {
     result.reason = checked.reason
+    return result
+  }
+
+  const compat = checkPluginCompatibility(manifest, pluginVersion)
+  if (compat.ok !== true) {
+    result.incompatible = true
+    result.reason = compat.reason
     return result
   }
 

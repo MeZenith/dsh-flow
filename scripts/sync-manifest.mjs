@@ -47,30 +47,43 @@ export function computeManifestEntries() {
     }))
 }
 
+export function compatBoundsOf(version) {
+  const match = /^(\d+)\.(\d+)/.exec(String(version ?? '').trim().replace(/^v/i, ''))
+  if (!match) return { minPluginVersion: '0.0.0', maxPluginVersion: '0.0.99' }
+  return {
+    minPluginVersion: `${match[1]}.${match[2]}.0`,
+    maxPluginVersion: `${match[1]}.${match[2]}.99`,
+  }
+}
+
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]
 if (isMain) {
   const checkMode = process.argv.includes('--check')
   const pkg = JSON.parse(readFileSync(PKG_PATH, 'utf8'))
   const computed = computeManifestEntries()
+  const bounds = compatBoundsOf(pkg.version)
 
   if (checkMode) {
     const existing = JSON.parse(readFileSync(MANIFEST_PATH, 'utf8'))
     const ok = existing.version === pkg.version
+      && existing.minPluginVersion === bounds.minPluginVersion
+      && existing.maxPluginVersion === bounds.maxPluginVersion
       && Array.isArray(existing.files)
       && existing.files.length === computed.length
       && existing.files.every((item, idx) => item.path === computed[idx].path && item.sha256 === computed[idx].sha256)
     if (!ok) {
-      console.error('prompts/manifest.json 与磁盘文件或 package.json 版本不一致，请运行 `npm run manifest:sync`')
+      console.error('prompts/manifest.json 与磁盘文件或 package.json 版本/兼容边界不一致，请运行 `npm run manifest:sync`')
       process.exit(1)
     }
     console.log(`OK: prompts/manifest.json (${existing.version}, ${computed.length} files) verified`)
   } else {
     const manifest = {
       version: pkg.version,
+      ...bounds,
       updatedAt: new Date().toISOString(),
       files: computed,
     }
     writeFileSync(MANIFEST_PATH, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
-    console.log(`Synced prompts/manifest.json (v${manifest.version}, ${computed.length} files)`)
+    console.log(`Synced prompts/manifest.json (v${manifest.version}, compat ${bounds.minPluginVersion}~${bounds.maxPluginVersion}, ${computed.length} files)`)
   }
 }
