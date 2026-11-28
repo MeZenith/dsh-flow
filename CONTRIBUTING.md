@@ -6,9 +6,10 @@
 
 ## 阅读顺序（推荐）
 
-1. 先读 [ARCHITECTURE.md](./ARCHITECTURE.md) 了解模块依赖拓扑、5 条核心运行时链路与硬不变量；
-2. 再读 [docs/DEVELOPING.md](./docs/DEVELOPING.md) 掌握 5 分钟本地启动、调试技巧与扩展套路；
-3. 涉及认证/远程控制/文件写入安全边界时，先阅读 [SECURITY.md](./SECURITY.md) 与 [docs/adr/](./docs/adr/)。
+1. 若使用 AI 编程代理协作，请先让其加载 [AGENTS.md](./AGENTS.md)（[AGENT.md](./AGENT.md) 同步指向该规范）；
+2. 先读 [ARCHITECTURE.md](./ARCHITECTURE.md) 了解模块依赖拓扑、5 条核心运行时链路与硬不变量；
+3. 再读 [docs/DEVELOPING.md](./docs/DEVELOPING.md) 掌握 5 分钟本地启动、调试技巧与扩展套路；
+4. 涉及认证/远程控制/文件写入安全边界时，先阅读 [SECURITY.md](./SECURITY.md) 与 [docs/adr/](./docs/adr/)。
 
 ## 本地开发环境
 
