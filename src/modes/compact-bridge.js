@@ -26,6 +26,61 @@ function safeGet(read) {
   try { return read() } catch { return undefined }
 }
 
+const EXTERNAL_COMPACTOR_NAME_RE = /\b(?:bili-native|billion-context|bili-compaction-gate)\b/i
+
+function commandListHas(cmds, target) {
+  try {
+    if (typeof cmds?.get === 'function') {
+      return cmds.get(target) !== undefined && cmds.get(target) !== null
+    }
+    if (typeof cmds?.list === 'function') {
+      const items = cmds.list()
+      if (items && typeof items[Symbol.iterator] === 'function') {
+        for (const item of items) {
+          const name = typeof item === 'string' ? item : item?.name
+          if (name === target) return true
+        }
+      }
+    }
+  } catch { /* best-effort: 宿主命令注册表查询异常时忽略 */ }
+  return false
+}
+
+/**
+ * 探测宿主是否已挂载外部增量上下文压缩插件（例如 `billion-context`）。
+ * 全部服务读取经由 `safeGet`，兼容严格 Cordis Proxy。
+ */
+export function detectExternalCompactor(ctx) {
+  const envProxy = typeof process?.env?.BILLION_CONTEXT_PROXY === 'string'
+    ? process.env.BILLION_CONTEXT_PROXY.trim()
+    : ''
+  const envAttach = typeof process?.env?.BILLION_CONTEXT_ATTACH === 'string'
+    ? process.env.BILLION_CONTEXT_ATTACH.trim()
+    : ''
+  if (envProxy !== '' || envAttach !== '') {
+    return { detected: true, name: 'billion-context' }
+  }
+
+  const loader = safeGet(() => ctx?.get?.('loader'))
+  const entries = safeGet(() => loader?.entries?.())
+  if (entries && typeof entries[Symbol.iterator] === 'function') {
+    for (const entry of entries) {
+      if (!entry || entry.disabled === true || entry.active === false) continue
+      const candidate = String(entry?.options?.name ?? entry?.name ?? entry?.plugin?.name ?? '')
+      if (EXTERNAL_COMPACTOR_NAME_RE.test(candidate)) {
+        return { detected: true, name: 'billion-context' }
+      }
+    }
+  }
+
+  const cmds = safeGet(() => ctx?.get?.('commands')) ?? safeGet(() => ctx?.commands)
+  if (cmds && commandListHas(cmds, 'acp') && commandListHas(cmds, 'acp-cache')) {
+    return { detected: true, name: 'billion-context' }
+  }
+
+  return { detected: false, name: '' }
+}
+
 export function createCompactBridge({ ctx, getHostCompaction, isLocked, logger }) {
   const waiting = new Set()
   const timers = new Set()
@@ -33,6 +88,13 @@ export function createCompactBridge({ ctx, getHostCompaction, isLocked, logger }
   const activeControllers = new Map()
   const forgotten = new WeakSet()
   let disposed = false
+  let externalYieldLogged = false
+
+  function noteExternalYield(name) {
+    if (externalYieldLogged) return
+    externalYieldLogged = true
+    logger?.info?.(`flow: 检测到外部上下文压缩插件 ${name}，阶段门禁自动压缩已自动让权`)
+  }
 
   function resolve(agent) {
     const presets = safeGet(() => ctx.get('agentPresets'))
@@ -55,7 +117,14 @@ export function createCompactBridge({ ctx, getHostCompaction, isLocked, logger }
     return safeGet(() => presets.composedPreset(agent?.ctx))
   }
 
-  async function runNow(agent, signal) {
+  async function runNow(agent, signal, options = {}) {
+    if (options?.auto === true) {
+      const ext = detectExternalCompactor(ctx)
+      if (ext.detected) {
+        noteExternalYield(ext.name)
+        return { ok: true, code: 'delegated', provider: ext.name, text: `已由 ${ext.name} 接管上下文压缩。` }
+      }
+    }
     const compaction = resolve(agent)
     if (compaction === undefined) {
       const presetId = presetIdOf(agent)
@@ -101,7 +170,7 @@ export function createCompactBridge({ ctx, getHostCompaction, isLocked, logger }
     }
     const controller = new AbortController()
     activeControllers.set(controller, agent)
-    void runNow(agent, controller.signal).then((outcome) => {
+    void runNow(agent, controller.signal, { auto: true }).then((outcome) => {
       activeControllers.delete(controller)
       if (disposed || forgotten.has(agent)) return
       if (outcome.ok) {
@@ -126,9 +195,52 @@ export function createCompactBridge({ ctx, getHostCompaction, isLocked, logger }
 
   function schedule(agent) {
     if (disposed || agent === null || typeof agent !== 'object') return false
+    const ext = detectExternalCompactor(ctx)
+    if (ext.detected) {
+      noteExternalYield(ext.name)
+      return false
+    }
     if (waiting.has(agent)) return false
     waiting.add(agent)
     return true
+  }
+
+  async function drainScheduled(agent) {
+    if (disposed || agent === null || typeof agent !== 'object' || forgotten.has(agent) || !waiting.has(agent)) {
+      return { ok: false, code: 'not-scheduled' }
+    }
+    if (typeof isLocked === 'function' && isLocked(agent) === true) {
+      return { ok: false, code: 'locked' }
+    }
+    // 先同步移除 waiting，避免紧邻的 onStatus('idle') 微任务重复触发压缩
+    waiting.delete(agent)
+    const ext = detectExternalCompactor(ctx)
+    if (ext.detected) {
+      noteExternalYield(ext.name)
+      return { ok: true, code: 'delegated', provider: ext.name }
+    }
+    const controller = new AbortController()
+    activeControllers.set(controller, agent)
+    let outcome
+    try {
+      outcome = await runNow(agent, controller.signal, { auto: true })
+    } finally {
+      activeControllers.delete(controller)
+    }
+    if (disposed || forgotten.has(agent)) {
+      return { ok: false, code: 'cancelled' }
+    }
+    if (outcome.ok) {
+      logger?.info?.(`flow: 阶段切换后自动压缩完成（${outcome.code}）`)
+      return outcome
+    }
+    if (outcome.code === 'busy') {
+      waiting.add(agent)
+      later(RETRY_DELAYS[0], () => { attempt(agent, 1) })
+    } else if (outcome.code !== 'unavailable') {
+      logger?.warn?.(`flow: 阶段切换后自动压缩未完成 — ${outcome.text}`)
+    }
+    return outcome
   }
 
   function isScheduled(agent) {
@@ -175,5 +287,15 @@ export function createCompactBridge({ ctx, getHostCompaction, isLocked, logger }
     timers.clear()
   }
 
-  return { schedule, isScheduled, runNow, onStatus, available, forget, dispose }
+  return {
+    schedule,
+    isScheduled,
+    drainScheduled,
+    runNow,
+    onStatus,
+    available,
+    externalCompactor: () => detectExternalCompactor(ctx),
+    forget,
+    dispose,
+  }
 }

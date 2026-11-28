@@ -203,7 +203,45 @@ export function apply(ctx, config) {
       logger,
     })
     scoped.effect(() => () => bridge.dispose(), 'flow: compact bridge')
-    scoped.on('agent/status', payload => { bridge.onStatus(payload) })
+
+    const idleWaiters = new Map()
+    const settleIdleWaiters = (agent) => {
+      if (!agent) return
+      const set = idleWaiters.get(agent)
+      if (set === undefined) return
+      idleWaiters.delete(agent)
+      for (const done of set) {
+        try { done() } catch { /* best-effort: 空闲等待器回调异常不影响其余等待方 */ }
+      }
+    }
+    const waitForIdle = (agent, timeoutMs = 5000) => {
+      if (!agent || agent.status !== 'running') return Promise.resolve()
+      return new Promise((resolve) => {
+        let bucket = idleWaiters.get(agent)
+        if (bucket === undefined) {
+          bucket = new Set()
+          idleWaiters.set(agent, bucket)
+        }
+        let timer
+        const finish = () => {
+          if (timer !== undefined) clearTimeout(timer)
+          const current = idleWaiters.get(agent)
+          if (current !== undefined) {
+            current.delete(finish)
+            if (current.size === 0) idleWaiters.delete(agent)
+          }
+          resolve()
+        }
+        bucket.add(finish)
+        timer = setTimeout(finish, timeoutMs)
+        if (typeof timer.unref === 'function') timer.unref()
+      })
+    }
+
+    scoped.on('agent/status', payload => {
+      bridge.onStatus(payload)
+      if (payload?.status === 'idle') settleIdleWaiters(payload.agent)
+    })
 
     const activity = createActivityTracker({ ctx: scoped })
     scoped.effect(() => () => activity.dispose(), 'flow: activity')
@@ -298,13 +336,16 @@ export function apply(ctx, config) {
     const gateRouter = createGateRouter({
       tickets,
       breaker,
+      bridge,
       im: imChannel,
       getConfig,
       resolveAgent,
       settler,
+      waitForIdle,
       logger,
       diag,
     })
+    scoped.effect(() => () => gateRouter.dispose(), 'flow: gate router')
 
     // 6. 远程控制中枢（RemoteHub）+ 直连飞书指挥官
     const harnessBridge = createHarnessBridge({
@@ -369,6 +410,7 @@ export function apply(ctx, config) {
     scoped.on('session/event', (session, event) => {
       const sid = String(session?.id ?? '')
       if (sid === '' || session?.header?.origin === 'subagent') return
+      gateRouter.observeInboxSpliced({ sessionId: sid, event })
       feishuCommander.onSessionEvent({
         sessionId: sid,
         event,
@@ -480,10 +522,12 @@ export function apply(ctx, config) {
         agentDisposers.delete(id)
       }
       bridge.forget(agent)
+      settleIdleWaiters(agent)
       const sid = String(agent?.session?.id ?? '')
       if (sid !== '') {
         activity.forget(sid)
         breaker.forget(sid)
+        gateRouter.forgetSession(sid)
         dispatchStore.forget(sid)
         reworkTracker.forget(sid)
         stateStore.forgetSession(sid)

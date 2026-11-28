@@ -103,6 +103,18 @@ When driving long coding chains with an LLM, the real cost is rarely "it cannot 
 
 ---
 
+### Recommended Companion Plugins (Optional, Strongly Recommended)
+
+`dsh-flow` runs standalone out of the box with zero mandatory prerequisites. Pairing it with the optional companions below unlocks the best experience on large, multi-turn projects:
+
+| Companion Category | Recommended Plugin / Capability | Synergy & Compatibility |
+| :--- | :--- | :--- |
+| **Long-Context Compression**<br>*(Strongly Recommended)* | [`billion-context`](https://github.com/ranxianglei/billion-context) | Strongly recommended for `M / L` projects and long-running sessions: provides protocol-level incremental context compression, KV cache preservation, and on-demand recall. `dsh-flow` automatically detects `billion-context` (`bili-native`) and yields stage-gate auto-compaction to avoid conflicts. |
+| **Concurrent Multi-Agent Team**<br>*(Optional)* | `dsh-team-control` / DSH subagent orchestration | Without it, `dsh-flow` executes cleanly in single-threaded lead mode; with it installed, disjoint file-allowlist dispatch unlocks parallel build and two-stage QA delegation. |
+| **UI Design & Motion Skills**<br>*(Optional)* | UI design skills (e.g., `ui-ux-pro-max`, `animate`) | Automatically discovered via `flow_ui_skill` for UI tasks and folded into `04-ui-spec.md` for higher visual and interaction polish. |
+
+---
+
 ### Interface & Live Previews
 
 #### 1. Apple-Minimalist Settings Workbench & Mode Chip

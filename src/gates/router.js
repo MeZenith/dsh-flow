@@ -36,23 +36,89 @@ function actionOfToken(ticket, token) {
   return { action: option.action, label: option.label }
 }
 
+const MAX_ENQUEUED_TRACK = 500
+
 /**
  * 创建遥控路由器。
  *
  * @param {{
  *   tickets: ReturnType<typeof import('./tickets.js').createGateTickets>,
  *   breaker?: { listTrips?: () => object[], isLocked?: (agent: object) => boolean },
+ *   bridge?: { isScheduled?: (agent: object) => boolean, drainScheduled?: (agent: object) => Promise<object> },
  *   im?: { send?: Function },
  *   getConfig: () => object,
  *   resolveAgent: (sessionId: string) => object | undefined,
  *   settler: { settle: Function },
+ *   waitForIdle?: (agent: object, timeoutMs?: number) => Promise<void>,
  *   logger?: { warn?: Function, info?: Function },
  *   diag?: (message: string) => void,
  * }} deps
  */
-export function createGateRouter({ tickets, breaker, im, getConfig, resolveAgent, settler, logger, diag = () => {} }) {
+export function createGateRouter({
+  tickets, breaker, bridge, im, getConfig, resolveAgent, settler, waitForIdle, logger, diag = () => {},
+}) {
+  const enqueuedAtById = new Map()
+  const sessionMsgIds = new Map()
+  const pendingTimers = new Set()
+  let disposed = false
+
   const warn = (message) => {
     try { logger?.warn?.(message) } catch { /* best-effort: 宿主 logger 异常时不阻断门禁路由 */ }
+  }
+
+  function observeInboxSpliced({ sessionId, event } = {}) {
+    if (disposed || event?.type !== 'agent/inbox/spliced') return
+    const inserted = event?.data?.inserted
+    if (!Array.isArray(inserted) || inserted.length === 0) return
+    const ts = Number.isFinite(Number(event?.time)) ? Number(event.time) : Date.now()
+    const sid = String(sessionId ?? '')
+    for (const msg of inserted) {
+      const mid = typeof msg?.id === 'string' ? msg.id.trim() : ''
+      if (mid === '') continue
+      if (enqueuedAtById.size >= MAX_ENQUEUED_TRACK && !enqueuedAtById.has(mid)) {
+        const oldestKey = enqueuedAtById.keys().next().value
+        if (oldestKey !== undefined) enqueuedAtById.delete(oldestKey)
+      }
+      enqueuedAtById.set(mid, ts)
+      if (sid !== '') {
+        let bucket = sessionMsgIds.get(sid)
+        if (bucket === undefined) {
+          bucket = new Set()
+          sessionMsgIds.set(sid, bucket)
+        }
+        bucket.add(mid)
+      }
+    }
+  }
+
+  function enqueuedTimeOf(messages) {
+    if (!Array.isArray(messages)) return undefined
+    for (const msg of messages) {
+      if (typeof msg?.id === 'string' && enqueuedAtById.has(msg.id)) {
+        return enqueuedAtById.get(msg.id)
+      }
+      if (Number.isFinite(Number(msg?.enqueuedAt))) return Number(msg.enqueuedAt)
+      if (Number.isFinite(Number(msg?.createdAt))) return Number(msg.createdAt)
+    }
+    return undefined
+  }
+
+  function forgetSession(sessionId) {
+    const sid = String(sessionId ?? '')
+    if (sid === '') return
+    const bucket = sessionMsgIds.get(sid)
+    if (bucket !== undefined) {
+      for (const mid of bucket) enqueuedAtById.delete(mid)
+      sessionMsgIds.delete(sid)
+    }
+  }
+
+  function dispose() {
+    disposed = true
+    for (const timer of pendingTimers) clearTimeout(timer)
+    pendingTimers.clear()
+    enqueuedAtById.clear()
+    sessionMsgIds.clear()
   }
 
   async function reply(markdown, title = 'Flow 门禁') {
@@ -65,12 +131,61 @@ export function createGateRouter({ tickets, breaker, im, getConfig, resolveAgent
     }
   }
 
+  function deliverNow(target, message, first, second, sessionId) {
+    try {
+      if (typeof target[first] === 'function') {
+        target[first](message)
+      } else if (typeof target[second] === 'function') {
+        target[second](message)
+      } else {
+        return { ok: false, reason: '目标会话不支持消息注入' }
+      }
+      diag(`gate inject ok target=${sessionId} via=${first} len=${message.content[0].text.length}`)
+      return { ok: true }
+    } catch (error) {
+      try {
+        if (typeof target[second] === 'function') {
+          target[second](message)
+          diag(`gate inject via ${second} target=${sessionId}`)
+          return { ok: true }
+        }
+      } catch (secondError) {
+        warn(`flow: 门禁消息注入失败 → ${secondError instanceof Error ? secondError.message : String(secondError)}`)
+      }
+      diag(`gate inject fail ${error instanceof Error ? error.message : String(error)}`)
+      return { ok: false, reason: '注入失败' }
+    }
+  }
+
+  function waitWithSafetyTimeout(promise, ms = 5000) {
+    let timer
+    const timeout = new Promise((resolve) => {
+      timer = setTimeout(() => {
+        pendingTimers.delete(timer)
+        resolve()
+      }, ms)
+      if (typeof timer.unref === 'function') timer.unref()
+      pendingTimers.add(timer)
+    })
+    return Promise.race([Promise.resolve(promise), timeout]).finally(() => {
+      if (timer !== undefined) {
+        clearTimeout(timer)
+        pendingTimers.delete(timer)
+      }
+    })
+  }
+
+  function shouldDeferDelivery(target, deferUntilIdle) {
+    return deferUntilIdle === true && (target.status === 'running' || typeof target.whenIdle === 'function')
+  }
+
   /**
    * 把纯文本注入目标会话。
    * - `preferFollowup=true`（同会话刚 reject 当前步，或外部飞书卡片回调唤醒空闲会话）：优先 `followup`；
+   * - `deferUntilIdle=true`（桌面 preStep 刚 return reject 时）：等当前轮真正进入 idle（并完成自动压缩）后再唤醒下一轮，防止运行态 followup 唤醒信号被 DSH 吞掉；
    * - 否则优先 `steer`，异常时回退 `followup`。
    */
-  function injectText({ ticket, text, template, preferFollowup = false }) {
+  function injectText({ ticket, text, template, preferFollowup = false, deferUntilIdle = false }) {
     const target = resolveAgent(ticket.sessionId)
     if (target === undefined || target === null) {
       diag(`gate inject abort target missing session=${ticket.sessionId}`)
@@ -92,33 +207,45 @@ export function createGateRouter({ tickets, breaker, im, getConfig, resolveAgent
 
     const first = preferFollowup ? 'followup' : 'steer'
     const second = preferFollowup ? 'steer' : 'followup'
-    try {
-      if (typeof target[first] === 'function') {
-        target[first](message)
-      } else if (typeof target[second] === 'function') {
-        target[second](message)
-      } else {
-        return { ok: false, reason: '目标会话不支持消息注入' }
-      }
-      diag(`gate inject ok target=${ticket.sessionId} via=${first} len=${text.length}`)
-      return { ok: true }
-    } catch (error) {
-      try {
-        if (typeof target[second] === 'function') {
-          target[second](message)
-          diag(`gate inject via ${second} target=${ticket.sessionId}`)
-          return { ok: true }
-        }
-      } catch (secondError) {
-        warn(`flow: 门禁消息注入失败 → ${secondError instanceof Error ? secondError.message : String(secondError)}`)
-      }
-      diag(`gate inject fail ${error instanceof Error ? error.message : String(error)}`)
-      return { ok: false, reason: '注入失败' }
+    if (!shouldDeferDelivery(target, deferUntilIdle)) {
+      return deliverNow(target, message, first, second, ticket.sessionId)
     }
+
+    void (async () => {
+      try {
+        if (typeof target.whenIdle === 'function') {
+          await waitWithSafetyTimeout(Promise.resolve(target.whenIdle()), 5000)
+        } else if (typeof waitForIdle === 'function' && target.status === 'running') {
+          await waitWithSafetyTimeout(Promise.resolve(waitForIdle(target, 5000)), 5000)
+        } else {
+          await new Promise((resolve) => {
+            const timer = setTimeout(() => {
+              pendingTimers.delete(timer)
+              resolve()
+            }, 0)
+            if (typeof timer.unref === 'function') timer.unref()
+            pendingTimers.add(timer)
+          })
+        }
+        if (disposed) return
+        if (typeof bridge?.drainScheduled === 'function' && bridge.isScheduled?.(target) === true) {
+          try {
+            await bridge.drainScheduled(target)
+          } catch { /* best-effort: 自动压缩失败不阻断门禁决定投递 */ }
+        }
+        if (disposed) return
+        const live = resolveAgent(ticket.sessionId) ?? target
+        deliverNow(live, message, first, second, ticket.sessionId)
+      } catch (error) {
+        warn(`flow: 延迟投递门禁决定失败 → ${error instanceof Error ? error.message : String(error)}`)
+      }
+    })()
+    diag(`gate inject deferred target=${ticket.sessionId} via=${first} len=${text.length}`)
+    return { ok: true, deferred: true }
   }
 
   /** 把决定（含附带文字原文）投递给目标会话。 */
-  function forwardDecision({ ticket, action, label, note, template, fromIm, by }) {
+  function forwardDecision({ ticket, action, label, note, template, fromIm, by, deferUntilIdle = false }) {
     const verbatim = note === '' ? '（无）' : note
     const sourceTag = by === 'feishu'
       ? '·来自飞书卡片'
@@ -133,7 +260,13 @@ export function createGateRouter({ tickets, breaker, im, getConfig, resolveAgent
       verbatim,
       '要求：先落实附带指令，再按该选项对应的阶段动作推进；两者冲突时以附带指令为准，并说明你的取舍。',
     ].join('\n')
-    return injectText({ ticket, text, template, preferFollowup: !fromIm || by === 'feishu' || by === 'cmd' })
+    return injectText({
+      ticket,
+      text,
+      template,
+      preferFollowup: !fromIm || by === 'feishu' || by === 'cmd',
+      deferUntilIdle,
+    })
   }
 
   /** 用户一旦在本会话开口，立刻撤掉该会话所有挂着的催办定时器。 */
@@ -274,6 +407,15 @@ export function createGateRouter({ tickets, breaker, im, getConfig, resolveAgent
     }
 
     const fromIm = ticket.sessionId !== sessionId
+    // G-02 修复：排队残留的旧消息（入队早于当前门禁票据创建时间）绝不允许用裸数字自动秒批新门禁。
+    if (bare !== null && !fromIm) {
+      const msgEnqueuedAt = enqueuedTimeOf(payload.messages)
+      const ticketCreatedAt = Number(ticket.createdAt) || 0
+      if (msgEnqueuedAt !== undefined && ticketCreatedAt > 0 && msgEnqueuedAt < ticketCreatedAt) {
+        diag(`gate router skip-stale-bare ticket=#${ticket.id} enqueuedAt=${msgEnqueuedAt} createdAt=${ticketCreatedAt}`)
+        return next()
+      }
+    }
     cancelPendingEscalations(ticket.sessionId)
 
     if (GATE_FINAL_STATES.includes(ticket.state)) {
@@ -294,6 +436,7 @@ export function createGateRouter({ tickets, breaker, im, getConfig, resolveAgent
         ticket,
         template,
         preferFollowup: true,
+        deferUntilIdle: true,
         text: `[Flow 文档 #${ticket.id}｜用户要看的摘要]\n${digest}\n\n请把上面的摘要**原样**展示给用户，然后等他继续。`,
       })
       return injected.ok === true ? { kind: 'reject' } : next()
@@ -332,6 +475,7 @@ export function createGateRouter({ tickets, breaker, im, getConfig, resolveAgent
       template,
       fromIm,
       by: fromIm ? 'im' : 'desktop',
+      deferUntilIdle: !fromIm,
     })
 
     if (fromIm) {
@@ -379,5 +523,8 @@ export function createGateRouter({ tickets, breaker, im, getConfig, resolveAgent
     cancelPendingEscalations,
     listAllGateCandidates,
     describeEffects,
+    observeInboxSpliced,
+    forgetSession,
+    dispose,
   }
 }

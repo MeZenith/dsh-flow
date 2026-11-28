@@ -110,26 +110,35 @@ export function createGateSettler({
 
       const autoCompact = config?.behavior?.autoCompactOnGate !== false
       if (autoCompact && typeof bridge?.schedule === 'function') {
-        try {
-          // P1-7 修复：门禁批准时若会话已空闲，先原地同步执行一次压缩，避免随后的 `followup` 抢跑导致 `busy`。
-          if (agent.status === 'idle' && typeof bridge.runNow === 'function') {
-            const immediate = await bridge.runNow(agent)
-            if (immediate?.ok === true) {
-              effects.compactScheduled = true
-              effects.compacted = true
-            } else if (immediate?.code === 'busy') {
-              effects.compactScheduled = bridge.schedule(agent) === true
+        const ext = typeof bridge?.externalCompactor === 'function' ? bridge.externalCompactor() : null
+        if (ext?.detected === true) {
+          effects.compactDelegated = ext.name
+          effects.compactScheduled = true
+        } else {
+          try {
+            // P1-7 修复：门禁批准时若会话已空闲，先原地同步执行一次压缩，避免随后的 `followup` 抢跑导致 `busy`。
+            if (agent.status === 'idle' && typeof bridge.runNow === 'function') {
+              const immediate = await bridge.runNow(agent, undefined, { auto: true })
+              if (immediate?.code === 'delegated') {
+                effects.compactDelegated = immediate.provider ?? 'external'
+                effects.compactScheduled = true
+              } else if (immediate?.ok === true) {
+                effects.compactScheduled = true
+                effects.compacted = true
+              } else if (immediate?.code === 'busy') {
+                effects.compactScheduled = bridge.schedule(agent) === true
+              } else {
+                effects.compactScheduled = false
+              }
             } else {
-              effects.compactScheduled = false
+              effects.compactScheduled = bridge.schedule(agent) === true
             }
-          } else {
-            effects.compactScheduled = bridge.schedule(agent) === true
+          } catch {
+            effects.compactScheduled = false
           }
-        } catch {
-          effects.compactScheduled = false
-        }
-        if (!effects.compactScheduled) {
-          warn('flow: 阶段切换后未能登记自动压缩（可能已有待办或在卸载中）')
+          if (!effects.compactScheduled) {
+            warn('flow: 阶段切换后未能登记自动压缩（可能已有待办或在卸载中）')
+          }
         }
       }
 

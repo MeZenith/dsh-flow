@@ -25,6 +25,17 @@ import {
 
 export const GATE_TOOL = FLOW_TOOL_NAMES[1]
 
+/** 根据自定义门禁选项文案推导动作语义，避免硬编码下标造成「打回修改」被记为 pause。 */
+export function inferCustomOptionAction(label, index = 0) {
+  const text = String(label ?? '').trim()
+  if (/暂停|接管|停止|挂起|pause|hold|stop/i.test(text)) return 'pause'
+  if (/打回|修改|重做|调整|完善|审计|plan[\s-]*ultra|revise|rework/i.test(text)) return 'revise'
+  if (/拒绝|取消|放弃|不同意|deny|reject|cancel/i.test(text)) return 'deny'
+  if (/跳过|忽略|暂不|skip/i.test(text)) return 'skip'
+  if (/批准|同意|通过|开始|继续|进入|确认|approve|accept|proceed/i.test(text)) return 'approve'
+  return ['approve', 'revise', 'pause', 'skip', 'deny'][index] ?? 'revise'
+}
+
 export function createGateTool({
   getConfig, logger, notifier, im, email, tickets, dispatchStore, remoteHub, stateStore,
 }) {
@@ -39,12 +50,11 @@ export function createGateTool({
   function buildOptions({ kind, config, nextMode, fromStage, custom }) {
     const planToBuild = (fromStage === 'plan' || fromStage === 'plan-ultra') && nextMode === 'build'
     if (Array.isArray(custom) && custom.length > 0) {
-      const actions = ['approve', 'skip', 'pause', 'revise', 'deny']
       return {
         options: custom.slice(0, GATE_OPTION_LIMIT).map((label, index) => ({
           label: String(label),
           description: `第 ${index + 1} 个选项（直接回复 ${index + 1}）`,
-          action: actions[index] ?? 'approve',
+          action: inferCustomOptionAction(label, index),
         })),
         planReview: false,
       }
@@ -106,12 +116,15 @@ export function createGateTool({
       '把下面整块原样展示给用户：',
       '',
       `──── Flow 门禁 #${ticket.id} · ${ticket.project} · ${ticket.fromStage} → ${targetLabel} ────`,
+      '',
       ...optionLines,
-      '0. 查看文档 / 草稿摘要',
-      `回复：桌面直接回 \`1\`（可附意见，如 \`1 把按钮改蓝\`）；飞书可直接点卡片按钮；其他 IM 请带 \`#${ticket.id} 1\``,
-      deliveryLine,
-      docsLine,
-      supersededLine,
+      '',
+      '- `0` 查看文档 / 草稿摘要',
+      `- 回复：桌面直接回 \`1\`（可附意见，如 \`1 把按钮改蓝\`）；飞书可直接点卡片按钮；其他 IM 请带 \`#${ticket.id} 1\``,
+      `- ${deliveryLine}`,
+      docsLine === undefined ? undefined : `- ${docsLine}`,
+      supersededLine === undefined ? undefined : `- ${supersededLine}`,
+      '',
       '────────────────────────────────',
       '',
       timeoutSeconds > 0
@@ -298,13 +311,16 @@ export function createGateTool({
         '把下面整块原样展示给用户：',
         '',
         `──── Flow 写文档授权 #${ticket.id} · ${project} ────`,
+        '',
         ...options.map((option, index) => `${index + 1}. ${option.label}｜${option.description}`),
-        '0. 查看草稿摘要',
-        `回复：桌面直接回 \`1\`；飞书点卡片按钮；其他 IM 回复 \`#${ticket.id} 1\``,
-        wantDoc === null ? '本次申请：写 .flow/docs（不限单篇）' : `本次申请：${docFileName(wantDoc)}`,
-        draftContent === '' ? '草稿：无' : '草稿：已作为 .draft.md 附件发出（授权通过前不落盘）',
-        deliveredParts.length === 0 ? undefined : `投递：${deliveredParts.join(' · ')}`,
-        '路径白名单硬编码：只放行 .flow/docs/** 与 .flow/spec.md，业务代码不受影响。',
+        '',
+        '- `0` 查看草稿摘要',
+        `- 回复：桌面直接回 \`1\`；飞书点卡片按钮；其他 IM 回复 \`#${ticket.id} 1\``,
+        `- ${wantDoc === null ? '本次申请：写 .flow/docs（不限单篇）' : `本次申请：${docFileName(wantDoc)}`}`,
+        `- ${draftContent === '' ? '草稿：无' : '草稿：已作为 .draft.md 附件发出（授权通过前不落盘）'}`,
+        deliveredParts.length === 0 ? undefined : `- 投递：${deliveredParts.join(' · ')}`,
+        '- 路径白名单硬编码：只放行 .flow/docs/** 与 .flow/spec.md，业务代码不受影响。',
+        '',
         '────────────────────────────────',
         '',
         '**强制指令：请向用户展示以上选项后立刻结束本轮对话，严禁在用户回复前继续推进任何工作。**',
