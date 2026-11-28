@@ -4,8 +4,8 @@
 
 | Version | Supported | Notes |
 | --- | --- | --- |
-| `0.6.1+` | ✅ Yes | Current hardened baseline (Apache-2.0, CI coverage gate, 3-tier high-risk approvals) |
-| `0.6.0` | ⚠️ Security fixes backported via upgrade | Upgrade to `0.6.1+` strongly recommended |
+| `0.7.0+` | ✅ Yes | Current hardened baseline (Apache-2.0, DSH `connection.requestRejection`, 3-tier high-risk approvals, strict dual-OS CI) |
+| `0.6.x` | ⚠️ Security fixes backported via upgrade | Upgrade to `0.7.0+` strongly recommended |
 | `< 0.6.0` | ❌ No | End of support |
 
 ## Reporting a Vulnerability / 漏洞上报

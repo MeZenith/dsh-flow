@@ -878,7 +878,7 @@ test('P1-11: prompt updater writes local manifest.json on success and rejects ov
       }
       return new Response(body, { status: 200 })
     }
-    const okRes = await updatePrompts({ sourceUrl: 'https://example.test/prompts', root, allowMirrorFallback: false })
+    const okRes = await updatePrompts({ sourceUrl: 'https://example.test/prompts', root, allowMirrorFallback: false, pluginVersion: '0.6.1' })
     assert.equal(okRes.ok, true)
     assert.equal(existsSync(join(root, 'manifest.json')), true)
     assert.equal(JSON.parse(readFileSync(join(root, 'manifest.json'), 'utf8')).version, '0.6.99')

@@ -31,7 +31,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v0.6.1-2563EB?style=flat-square" alt="Version v0.6.1" />
+  <img src="https://img.shields.io/badge/Version-v0.7.0-2563EB?style=flat-square" alt="Version v0.7.0" />
   <img src="https://img.shields.io/badge/License-Apache--2.0-059669?style=flat-square" alt="License: Apache-2.0" />
   <a href="https://github.com/MeZenith/dsh-flow/actions/workflows/ci.yml"><img src="https://github.com/MeZenith/dsh-flow/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <img src="https://img.shields.io/badge/ESM-Modular-16A34A?style=flat-square" alt="Modular ESM" />

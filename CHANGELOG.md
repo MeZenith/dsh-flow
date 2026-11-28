@@ -10,6 +10,28 @@
 
 暂无。
 
+## [0.7.0] - 2026-11-28
+
+开源治理、安全边界与工业级工程质量全面加固版本：切换 **Apache-2.0** 协议、接入 DSH 宿主 `connection.requestRejection` HTTP 准入检查、落地飞书三档高危审批策略与提示词供应链 Tag 锁定，建立 Ubuntu/Windows × Node 22/24 严格 CI 与覆盖率门禁，并补齐面向开发者与 AI 代理的全套工程文档。
+
+### Security
+
+- **DSH 宿主 HTTP 准入认证（Fail-Closed）**：[src/plugin.js](src/plugin.js) 改为 `scoped.inject(['webServer', 'connection'], ...)`（宿主缺少 `connection` 服务时不挂载任何 HTTP 路由），[src/prompts/api.js](src/prompts/api.js) 首道防线优先执行 `connection.requestRejection(request)`（拒绝时返回空响应体 `401`/`403` 与 `cache-control: no-store`），前端请求统一附带 `credentials: 'same-origin'`。
+- **飞书高危工具审批三档策略与凭据降级告警**：新增 `allow` / `pin`（`/approve <id> <pin>` + `timingSafeEqual` 校验且不回显 PIN）/ `desktop-only` 三级管控，并在 `App Secret` 未写入宿主加密凭据库时发出明确告警。
+- **提示词在线更新供应链护栏**：`DEFAULT_SOURCE_URL` 固定绑定发布 Tag `v${PLUGIN_VERSION}`（不再默认跟踪可变 `main`），`prompts/manifest.json` 增设 `minPluginVersion` / `maxPluginVersion` 兼容性约束。
+
+### Changed & Governance
+
+- **许可证迁移为 `Apache-2.0`**：替换原 `PolyForm-Noncommercial-1.0.0`，并在静态检查脚本强校验协议与 `engines` 一致性。
+- **工程与 AI 协作文档体系**：新增 [ARCHITECTURE.md](ARCHITECTURE.md)、[AGENTS.md](AGENTS.md)、[AGENT.md](AGENT.md)、[SECURITY.md](SECURITY.md)、[CONTRIBUTING.md](CONTRIBUTING.md)、[docs/DEVELOPING.md](docs/DEVELOPING.md)、3 份 ADR（`docs/adr/0001..0003`）以及 `.github/ISSUE_TEMPLATE/` 与 `.github/PULL_REQUEST_TEMPLATE.md`。
+- **代码卫生加固**：将 `src/` 内 30 处 `/* 忽略 */` catch 统一替换为 `dispose-path` / `best-effort` 说明，并在 [scripts/check-code.mjs](scripts/check-code.mjs) 启用无注释空 `catch {}` 静态拦截。
+
+### Tests & CI
+
+- 新增 `.github/workflows/ci.yml` 双系统（`ubuntu-latest` / `windows-latest`）× 双 Node（`22` / `24`）校验矩阵与非阻塞 `npm audit` 归档。
+- 新增 Fake Cordis 全生命周期、模式切换、内置 SMTP/IM 通知、熔断器矩阵、QA/运维/文档命令及飞书路由全分支测试套件，将 [scripts/test-coverage.mjs](scripts/test-coverage.mjs) 生产代码覆盖率门禁拉升至 `Line >= 80%`、`Branch >= 60%`、`Funcs >= 75%`。
+- 修复 `test/unit/resilience-and-notify.test.mjs` 在 Node 22 下等待 `.unref()` 定时器触发事件循环排空的兼容性问题。
+
 ## [0.6.1] - 2026-11-27
 
 全栈审计清零 + 真机联调修复版本：一口气修清 21 项审计缺陷（6 P0 + 11 P1 + 4 P2）与 4 项飞书真机实测问题，显著加固远程安全边界、飞书流式回复与工作区建会话体验，自动化测试增至 40 项。
@@ -231,7 +253,9 @@
 - **按模式绑定默认模型与权限档位**。
 - **设置页**：模式胶囊切换、底层提示词编辑、模型与权限配置。
 
-[Unreleased]: https://github.com/MeZenith/dsh-flow/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/MeZenith/dsh-flow/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/MeZenith/dsh-flow/compare/v0.6.1...v0.7.0
+[0.6.1]: https://github.com/MeZenith/dsh-flow/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/MeZenith/dsh-flow/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/MeZenith/dsh-flow/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/MeZenith/dsh-flow/compare/v0.4.0...v0.5.0

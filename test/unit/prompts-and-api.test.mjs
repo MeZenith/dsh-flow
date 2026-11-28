@@ -178,7 +178,7 @@ test('M-08: prompt-updater allows plugin installed under path containing "custom
     return new Response('not found', { status: 404 })
   }
   try {
-    const res = await updatePrompts({ sourceUrl: 'https://example.test/prompts', root: promptsRoot, allowMirrorFallback: false })
+    const res = await updatePrompts({ sourceUrl: 'https://example.test/prompts', root: promptsRoot, allowMirrorFallback: false, pluginVersion: '0.6.1' })
     assert.equal(res.ok, true)
     assert.deepEqual(res.updated, ['base.md'])
   } finally {
