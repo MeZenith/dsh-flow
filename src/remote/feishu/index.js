@@ -470,7 +470,8 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
     const approvalId = `appr-${randomUUID().slice(0, 10)}`
     const project = projectNameOfCwd(String(session?.header?.cwd ?? ''))
     const toolName = String(request?.toolName ?? request?.name ?? '工具调用')
-    const reason = redactSensitiveText(String(request?.reason ?? ''))
+    const rawReason = request?.displayReason?.zh ?? request?.displayReason?.en ?? request?.reason ?? ''
+    const reason = redactSensitiveText(String(rawReason))
     let summary = ''
     try {
       const rawInput = request?.input ?? request?.args ?? request?.params
@@ -556,6 +557,7 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
     const rawInput = request?.input ?? request?.args ?? request?.params
     const risk = classifyApprovalRisk({ toolName, reason, input: rawInput, summary })
     const policy = s.highRiskApprovalPolicy
+    diag(`feishu approval id=${approvalId} tool=${toolName} risk=${risk.level} policy=${policy} hasPin=${s.approvalPin !== ''}`)
 
     pendingApprovals.set(approvalId, { settle, onFeishuUnavailable, project, toolName, risk, policy })
 
@@ -701,6 +703,8 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
       localAlias: s.localAlias,
       localAvatar: s.localAvatar,
       defaultChatId: s.defaultChatId,
+      highRiskApprovalPolicy: s.highRiskApprovalPolicy,
+      hasApprovalPin: s.approvalPin !== '',
       allowedCount: s.allowedOpenIds.length,
       openPlatformUrl: openPlatformAppUrl(s.appId || ws.appId, s.domain),
       slashMenu: { ...slashMenuState },

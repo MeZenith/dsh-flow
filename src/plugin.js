@@ -114,7 +114,14 @@ export function apply(ctx, config) {
     const handle = await scoped.sessionProjections.register(createModeProjection())
     state.handle = handle
 
-    const getConfig = () => plainConfigOf(state.config)
+    const liveRawConfig = () => {
+      try {
+        const eff = ctx?.fiber?.effectiveConfig
+        if (eff && typeof eff === 'object') return eff
+      } catch { /* best-effort: 非标准或严格测试桩上下文可能不暴露 fiber */ }
+      return state.config
+    }
+    const getConfig = () => plainConfigOf(liveRawConfig())
     const readMode = session => (state.handle === null ? MODE_OFF : modeOfSession(state.handle, session))
     const logger = {
       warn: message => scoped.logger.warn(message),

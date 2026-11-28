@@ -803,9 +803,13 @@ test('Feishu v0.6.1 live regressions: sync agent/inbox/claimed race, workspaceId
 
 test('Feishu v0.7.0 Phase 2.2 security: classifyApprovalRisk, 3-tier high-risk policy (desktop-only & PIN) and credential fallback notice', async () => {
   assert.equal(classifyApprovalRisk({ toolName: 'bash', input: { command: 'ls' } }).level, 'high')
+  assert.equal(classifyApprovalRisk({ toolName: 'pwsh' }).level, 'high')
+  assert.equal(classifyApprovalRisk({ toolName: 'write' }).level, 'high')
+  assert.equal(classifyApprovalRisk({ toolName: 'edit' }).level, 'high')
   assert.equal(classifyApprovalRisk({ toolName: 'run_tool', summary: 'git push --force origin main' }).level, 'high')
   assert.equal(classifyApprovalRisk({ toolName: 'custom', reason: 'rm -rf ./dist' }).level, 'high')
   assert.equal(classifyApprovalRisk({ toolName: 'read_file', input: { path: 'README.md' } }).level, 'normal')
+  assert.equal(classifyApprovalRisk({ toolName: 'read' }).level, 'normal')
 
   const root = mkdtempSync(join(tmpdir(), 'dsh-flow-feishu-sec-'))
   const sentMessages = []
@@ -890,6 +894,9 @@ test('Feishu v0.7.0 Phase 2.2 security: classifyApprovalRisk, 3-tier high-risk p
     const st = await commander.status()
     assert.equal(st.credentialStorage, 'config')
     assert.equal(st.credentialFallback, true)
+    assert.equal(st.highRiskApprovalPolicy, 'desktop-only')
+    assert.equal(st.hasApprovalPin, true)
+    assert.ok(!JSON.stringify(st).includes('8642'))
     assert.ok(warnings.some(w => w.includes('降级存储')))
 
     // 1. desktop-only 策略：高危审批卡隐藏「允许」按钮，且即使伪造 allowed-once 回调也会被服务端拦截；拒绝仍可用

@@ -527,7 +527,7 @@ export function wrapCodeFence(text) {
   return `${fence}\n${body}\n${fence}`
 }
 
-const HIGH_RISK_TOOL_RE = /^(?:bash|shell|exec|run_command|terminal|powershell|cmd|delete_file|remove_file|unlink|rmdir)$/i
+const HIGH_RISK_TOOL_RE = /^(?:bash|bash_persistent|pwsh|pwsh_persistent|shell|exec|run_command|terminal|powershell|cmd|write|write_file|edit|apply_patch|delete_file|remove_file|unlink|rmdir)$/i
 const HIGH_RISK_TEXT_RULES = Object.freeze([
   { re: /\brm\s+-[a-z]*[rf][a-z]*/i, label: '递归强制删除 (rm)' },
   { re: /\b(?:del\s+\/[fq]|rmdir\s+\/s|remove-item\b[^\n]*-recurse)/i, label: '强制删除文件/目录' },
