@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security Vulnerability Disclosure
+    url: https://github.com/MeZenith/dsh-flow/blob/main/SECURITY.md
+    about: Please review SECURITY.md before sharing security issues or credential bugs publicly.

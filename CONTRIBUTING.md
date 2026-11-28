@@ -1,16 +1,22 @@
 # 参与贡献 dsh-flow
 
-欢迎任何形式的贡献！无论是提交 Bug 反馈、优化提示词模板、完善设置界面，还是为 `RemoteHub` 接入新的远程聊天通道（Telegram / 钉钉 / 企业微信 / Slack 等），我们都非常欢迎。
+欢迎任何形式的贡献！无论是提交 Bug 反馈、补充边界测试、完善设置界面，还是为 `RemoteHub` 接入新的远程聊天通道（Telegram / 钉钉 / 企业微信 / Slack 等），我们都非常欢迎。
 
 想找轻松上手的切入点，可以直接查看仓库中带有 [`good first issue`](https://github.com/MeZenith/dsh-flow/issues?q=is%3Aopen+label%3A%22good+first+issue%22) 或 [`help wanted`](https://github.com/MeZenith/dsh-flow/issues?q=is%3Aopen+label%3A%22help+wanted%22) 标签的 Issue。
 
+## 阅读顺序（推荐）
+
+1. 先读 [ARCHITECTURE.md](./ARCHITECTURE.md) 了解模块依赖拓扑、5 条核心运行时链路与硬不变量；
+2. 再读 [docs/DEVELOPING.md](./docs/DEVELOPING.md) 掌握 5 分钟本地启动、调试技巧与扩展套路；
+3. 涉及认证/远程控制/文件写入安全边界时，先阅读 [SECURITY.md](./SECURITY.md) 与 [docs/adr/](./docs/adr/)。
+
 ## 本地开发环境
 
-要求：**Node.js >= 22**（项目使用纯 ESM 模块，核心逻辑与前端构建脚本均为零外部构建依赖）。
+要求：**Node.js >= 22.0.0**（纯 ESM 模块，核心逻辑与构建脚本零外部依赖，支持 Windows 与 Linux）。
 
 ```bash
 # 1. 安装依赖
-npm install
+npm ci
 
 # 2. 如果修改了 src/client/*，重新编译根目录 client.js
 npm run build:client
@@ -18,8 +24,8 @@ npm run build:client
 # 3. 如果修改了 prompts/*，同步 prompts/manifest.json 校验清单
 npm run manifest:sync
 
-# 4. 运行静态检查与全部自动化测试
-npm run check && npm test
+# 4. 运行静态检查（语法 + console.log + 空 catch + 产物一致性）与全量覆盖率门禁测试
+npm run check && npm run test:coverage
 ```
 
 ## 核心目录结构（贡献者导览）
@@ -38,6 +44,6 @@ npm run check && npm test
 
 1. 若改动了 `src/client/` 下的前端源码，请运行 `npm run build:client` 更新 `client.js`。
 2. 若改动或新增了 `prompts/` 下的提示词文件，请运行 `npm run manifest:sync` 更新 `prompts/manifest.json`。
-3. 确保 `npm run check` 与 `npm test` 全部通过（目前共 40 项测试，零失败）。
+3. 确保 `npm run check` 与 `npm run test:coverage` 全部通过（覆盖率门禁：`Line >= 80%`、`Branch >= 60%`、`Funcs >= 75%`）。
 4. 修复 Bug 或新增功能时，请在 `test/` 下补充或更新对应测试。
 5. 请勿提交本地私有调试文件（如 `.flow/`）、真实凭证、App Secret 或任何 Token。

@@ -1,0 +1,24 @@
+name: Feature or Adapter Proposal
+description: Propose an improvement, new RemoteHub adapter, prompt enhancement, or developer experience upgrade
+title: "[Feat]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What workflow pain point or integration gap does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: design
+    attributes:
+      label: Proposed Design
+      description: Sketch how this integrates with existing modules (`RemoteHub`, modes, gates, UI, or tools)
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope & Verification Plan
+      description: Which files and automated tests (`node:test`) would verify the change?

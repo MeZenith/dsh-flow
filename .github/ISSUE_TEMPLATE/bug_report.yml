@@ -1,0 +1,53 @@
+name: Bug Report
+description: Report a reproducible defect in dsh-flow (DSH host integration, Feishu commander, workflow gates, or UI)
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting an issue. Please ensure **no secrets, App Secrets, tokens, or private `.flow/` logs** are included below.
+  - type: input
+    id: versions
+    attributes:
+      label: Environment Versions
+      description: Output of `node -v`, OS, `dsh-flow` version, and DSH host version
+      placeholder: "Node v22.14.0 / Windows 11 / dsh-flow 0.6.1 / DSH 0.2.x"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected Area
+      options:
+        - Workflow / Modes / Stage Gates
+        - Circuit Breaker / Team SSE
+        - Feishu Commander / Cards / Onboarding
+        - Notifications (SMTP / IM)
+        - Settings UI (client.js)
+        - Documentation / Build / CI
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction Steps
+      description: Clear steps or failing test case to reproduce the issue
+      placeholder: |
+        1. Configure ...
+        2. Run ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs Actual Behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs (Redacted)
+      description: Optional redacted error output or `diag` snippets
+      render: shell
