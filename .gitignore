@@ -2,7 +2,6 @@
 
 # Dependencies & caches
 node_modules/
-package-lock.json
 .pnpm-store/
 .npm/
 .cache/

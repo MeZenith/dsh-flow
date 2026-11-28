@@ -75,6 +75,22 @@ function holdOptional(ownerCtx, serviceName) {
  * @param {object} config
  */
 export function apply(ctx, config) {
+  const nodeMajor = Number(String(process.versions?.node ?? '').split('.')[0])
+  if (!Number.isFinite(nodeMajor) || nodeMajor < 22) {
+    ctx?.logger?.error?.(
+      `flow: dsh-flow requires Node.js >= 22 (current: ${process.versions?.node ?? 'unknown'}). `
+      + `需要 Node.js >= 22 运行环境（当前版本：${process.versions?.node ?? '未知'}），插件已跳过加载。`,
+    )
+    return
+  }
+
+  const hostVersion = String(ctx?.version ?? ctx?.root?.version ?? '').trim()
+  if (hostVersion !== '' && !/^v?0\.2(?:\.|-|$)/i.test(hostVersion)) {
+    ctx?.logger?.warn?.(
+      `flow: 检测到 DSH 宿主版本 ${hostVersion} 超出已验证兼容范围 (>=0.2.0 <0.3.0)，如遇 API 异常请更新插件或查阅 README 兼容说明。`,
+    )
+  }
+
   const state = { config, handle: null }
   const agentDisposers = new Map()
 

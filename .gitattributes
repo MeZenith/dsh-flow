@@ -10,8 +10,12 @@
 *.md    text eol=lf
 *.svg   text eol=lf
 *.patch text eol=lf
+*.yml   text eol=lf
 
-# 二进制资源（当前仓库没有，作为约定保留）
+# 编译拼装产物：PR Diff 自动折叠，避免噪音淹没源码变更
+client.js linguist-generated=true
+
+# 二进制资源
 *.png  binary
 *.jpg  binary
 *.jpeg binary
