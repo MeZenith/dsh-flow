@@ -158,7 +158,7 @@ export function createCompactBridge({ ctx, getHostCompaction, isLocked, logger }
     waiting.delete(agent)
     for (const [controller, owner] of activeControllers.entries()) {
       if (owner === agent) {
-        try { controller.abort() } catch { /* 忽略 */ }
+        try { controller.abort() } catch { /* dispose-path: 会话释放时中止在途压缩请求 */ }
         activeControllers.delete(controller)
       }
     }
@@ -168,7 +168,7 @@ export function createCompactBridge({ ctx, getHostCompaction, isLocked, logger }
     disposed = true
     waiting.clear()
     for (const controller of activeControllers.keys()) {
-      try { controller.abort() } catch { /* 忽略 */ }
+      try { controller.abort() } catch { /* dispose-path: 插件卸载时中止在途压缩请求 */ }
     }
     activeControllers.clear()
     for (const timer of timers) clearTimeout(timer)

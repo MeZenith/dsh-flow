@@ -176,7 +176,7 @@ async function fetchText(url, signal) {
     // P1-11 修复：先校验 Content-Length 再流式限容读取，杜绝超大响应体全量入内存引发 OOM。
     const contentLen = Number(response.headers?.get?.('content-length'))
     if (Number.isFinite(contentLen) && contentLen > MAX_BYTES) {
-      try { await response.body?.cancel?.() } catch { /* 忽略 */ }
+      try { await response.body?.cancel?.() } catch { /* dispose-path: 拒绝超大响应体后取消流读取 */ }
       throw new Error(`文件过大（${contentLen} 字节）`)
     }
 
@@ -192,14 +192,14 @@ async function fetchText(url, signal) {
           const buf = Buffer.from(value)
           totalBytes += buf.byteLength
           if (totalBytes > MAX_BYTES) {
-            try { await reader.cancel() } catch { /* 忽略 */ }
+            try { await reader.cancel() } catch { /* dispose-path: 流超限后中止读取并释放句柄 */ }
             controller.abort()
             throw new Error(`文件过大（超过 ${MAX_BYTES} 字节上限）`)
           }
           chunks.push(buf)
         }
       } finally {
-        try { reader.releaseLock?.() } catch { /* 忽略 */ }
+        try { reader.releaseLock?.() } catch { /* dispose-path: 读流结束后释放 reader lock */ }
       }
       return Buffer.concat(chunks, totalBytes).toString('utf8')
     }

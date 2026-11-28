@@ -518,10 +518,10 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
       pendingApprovals.delete(approvalId)
       origSignal?.removeEventListener?.('abort', onOrigAbort)
       if (signalPatched && request && request.signal === localAc.signal) {
-        try { request.signal = origSignal } catch { /* 忽略 */ }
+        try { request.signal = origSignal } catch { /* best-effort: 宿主冻结 request 对象时不强行还原 signal */ }
       }
       if (!localAc.signal.aborted) {
-        try { localAc.abort(new Error('approval settled')) } catch { /* 忽略 */ }
+        try { localAc.abort(new Error('approval settled')) } catch { /* dispose-path: 审批已结算后中止本地 AbortController */ }
       }
       resolvePromise(decision)
       if (cardMessageId !== '') {
@@ -733,7 +733,7 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
 
   function releasePendingApprovalsOnDisconnect() {
     for (const entry of [...pendingApprovals.values()]) {
-      try { entry.onFeishuUnavailable?.('system') } catch { /* 忽略 */ }
+      try { entry.onFeishuUnavailable?.('system') } catch { /* dispose-path: 断线清理时单项回调异常不阻塞其他挂起审批 */ }
     }
   }
 
@@ -747,7 +747,7 @@ export function createFeishuCommander({ hub, getConfig, getCredentials, stateSto
     onboarding.cancel()
     replyStreamer.dispose()
     for (const entry of [...pendingApprovals.values()]) {
-      try { entry.settle('cancelled', 'system') } catch { /* 忽略 */ }
+      try { entry.settle('cancelled', 'system') } catch { /* dispose-path: 插件卸载时取消所有待决审批 */ }
     }
     pendingApprovals.clear()
     await client.disconnect()

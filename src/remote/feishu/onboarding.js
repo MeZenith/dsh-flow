@@ -242,7 +242,7 @@ export function createFeishuOnboarding({ secretStore, onCompleted, logger }) {
 
   function cancel() {
     if (controller !== null) {
-      try { controller.abort() } catch { /* 忽略 */ }
+      try { controller.abort() } catch { /* dispose-path: 取消扫码建应用时中止进行中 HTTP 请求 */ }
       controller = null
     }
     if (state.phase === 'starting' || state.phase === 'qr_ready' || state.phase === 'scanned') {

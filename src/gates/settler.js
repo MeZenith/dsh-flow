@@ -42,7 +42,7 @@ export function createGateSettler({
   const inFlight = new Set()
 
   const warn = (message) => {
-    try { logger?.warn?.(message) } catch { /* 忽略 */ }
+    try { logger?.warn?.(message) } catch { /* best-effort: 宿主 logger 异常时不阻断门禁结算 */ }
   }
 
   async function applyEffects(ticket, action) {

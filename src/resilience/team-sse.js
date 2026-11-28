@@ -146,7 +146,7 @@ export function createTeamWatcher({ getConfig, onAlert, onComplete, logger }) {
     if (lastEventId !== '') headers['last-event-id'] = lastEventId
 
     const connectTimer = setTimeout(() => {
-      try { controller?.abort() } catch { /* 忽略 */ }
+      try { controller?.abort() } catch { /* dispose-path: SSE 建连超时触发中断 */ }
     }, CONNECT_TIMEOUT_MS)
     if (typeof connectTimer.unref === 'function') connectTimer.unref()
     let response
@@ -172,7 +172,7 @@ export function createTeamWatcher({ getConfig, onAlert, onComplete, logger }) {
       if (done) break
       buffer += decoder.decode(value, { stream: true })
       if (buffer.length > MAX_SSE_BUFFER_CHARS) {
-        try { await reader.cancel() } catch { /* 忽略 */ }
+        try { await reader.cancel() } catch { /* dispose-path: SSE 缓冲超限断开连接 */ }
         throw new Error('SSE 帧缓冲超过 1MB 上限，已主动断流重连')
       }
       // 兼容 \r\n\r\n 与 \n\n 两种 SSE 帧分隔符。

@@ -2,7 +2,7 @@
 /**
  * 零依赖静态校验脚本：
  * 1. 对 `index.js`、`client.js`、`src/`、`scripts/`、`test/` 全量执行 `node --check` 语法检查；
- * 2. 检查 `src/` 下是否遗留 `console.log(` 调试语句；
+ * 2. 检查 `src/` 下是否遗留 `console.log(` 调试语句或无说明空 catch 块；
  * 3. 校验 `package.json` 的 `engines.node`、`engines.dsh` 与 `Apache-2.0` 协议元数据一致性。
  */
 import { execFileSync } from 'node:child_process'
@@ -43,9 +43,10 @@ for (const file of files) {
   execFileSync(process.execPath, ['--check', file], { stdio: 'inherit' })
 }
 
-// 检查 src/ 下的调试 console.log( 调用（忽略单行注释）
+// 检查 src/ 下的调试 console.log( 与无注释空 catch 块
 const srcFiles = collectJsFiles('src')
 const consoleViolations = []
+const emptyCatchViolations = []
 for (const file of srcFiles) {
   const rel = relative(ROOT, file).replace(/\\/g, '/')
   const lines = readFileSync(file, 'utf8').split(/\r?\n/)
@@ -56,10 +57,17 @@ for (const file of srcFiles) {
     if (/\bconsole\.log\s*\(/.test(line)) {
       consoleViolations.push(`${rel}:${i + 1}: ${trimmed}`)
     }
+    if (/\bcatch\s*(?:\([^)]*\))?\s*\{\s*\}/.test(line)) {
+      emptyCatchViolations.push(`${rel}:${i + 1}: ${trimmed}`)
+    }
   }
 }
 if (consoleViolations.length > 0) {
   console.error('静态检查失败：src/ 中不允许残留 console.log：\n' + consoleViolations.join('\n'))
+  process.exit(1)
+}
+if (emptyCatchViolations.length > 0) {
+  console.error('静态检查失败：src/ 中不允许无注释空 catch 块：\n' + emptyCatchViolations.join('\n'))
   process.exit(1)
 }
 
@@ -75,4 +83,4 @@ if (pkg.license !== 'Apache-2.0' || !licenseText.includes('Apache License') || !
   process.exit(1)
 }
 
-console.log(`OK: checked ${files.length} JS/MJS files, engines (${pkg.engines.node} / dsh ${pkg.engines.dsh}), license (${pkg.license})`)
+console.log(`OK: checked ${files.length} JS/MJS files (empty-catch guard), engines (${pkg.engines.node} / dsh ${pkg.engines.dsh}), license (${pkg.license})`)

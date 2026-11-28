@@ -156,7 +156,7 @@ export function createUiSkillProbe({ getSkills, getConfig, logger, diag = () => 
         return result
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        try { logger?.warn?.(`flow: UI Skill 探测失败 → ${message}`) } catch { /* 忽略 */ }
+        try { logger?.warn?.(`flow: UI Skill 探测失败 → ${message}`) } catch { /* best-effort: logger 异常时保持降级返回 */ }
         const result = {
           ok: false,
           source: 'error',

@@ -59,7 +59,7 @@ export function resolveQuestions({ ctx, getUserQuestions, agent }) {
   try {
     const local = agent?.ctx?.get?.('userQuestions')
     if (typeof local?.ask === 'function') return local
-  } catch { /* 忽略 */ }
+  } catch { /* best-effort: 可选局部 userQuestions 服务缺失时返回 undefined */ }
   return undefined
 }
 

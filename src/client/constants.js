@@ -40,7 +40,7 @@ function ensureStyles() {
 function newId() {
   try {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
-  } catch { /* 忽略 */ }
+  } catch { /* best-effort: 部分受限运行环境禁用 crypto.randomUUID，回落时间戳随机串 */ }
   return `set-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
 
@@ -77,7 +77,7 @@ function useConfigSnapshot(form) {
     try { off = form.subscribe(publish) } catch { off = undefined }
     return () => {
       alive = false
-      try { if (typeof off === 'function') off() } catch { /* 忽略 */ }
+      try { if (typeof off === 'function') off() } catch { /* dispose-path: 卸载阶段订阅句柄可能已由表单销毁 */ }
     }
   }, [form])
 

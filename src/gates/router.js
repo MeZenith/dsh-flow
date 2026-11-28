@@ -52,7 +52,7 @@ function actionOfToken(ticket, token) {
  */
 export function createGateRouter({ tickets, breaker, im, getConfig, resolveAgent, settler, logger, diag = () => {} }) {
   const warn = (message) => {
-    try { logger?.warn?.(message) } catch { /* 忽略 */ }
+    try { logger?.warn?.(message) } catch { /* best-effort: 宿主 logger 异常时不阻断门禁路由 */ }
   }
 
   async function reply(markdown, title = 'Flow 门禁') {

@@ -59,7 +59,7 @@ export function createCircuitBreaker({
   const diag = typeof diagSink === 'function'
     ? diagSink
     : (message) => {
-      try { logger?.info?.(`[flow:diag] ${message}`) } catch { /* 忽略 */ }
+      try { logger?.info?.(`[flow:diag] ${message}`) } catch { /* best-effort: 宿主 logger 异常时不阻断熔断诊断 */ }
     }
 
   function sessionIdOf(agent) {
@@ -390,7 +390,7 @@ export function createCircuitBreaker({
     state.streak = 0
     state.errors = []
     // B-10c：取消尚未发出的延迟熔断告警。
-    try { state.notifyHandle?.cancel?.() } catch { /* 忽略 */ }
+    try { state.notifyHandle?.cancel?.() } catch { /* dispose-path: 延迟告警句柄已触发或清理 */ }
     state.notifyHandle = undefined
     const meta = tripped.get(state.key)
     tripped.delete(state.key)
@@ -402,7 +402,7 @@ export function createCircuitBreaker({
           project: meta?.project ?? projectOf(agent),
           reason,
         })
-      } catch { /* 忽略 */ }
+      } catch { /* best-effort: 外部解锁监听器异常不影响本地解锁状态 */ }
     }
   }
 
@@ -739,7 +739,7 @@ export function createCircuitBreaker({
     const sid = String(sessionId ?? '')
     const key = `session:${sid}`
     const state = states.get(key)
-    try { state?.notifyHandle?.cancel?.() } catch { /* 忽略 */ }
+    try { state?.notifyHandle?.cancel?.() } catch { /* dispose-path: 会话释放时取消延迟告警 */ }
     states.delete(key)
     alerts.delete(key)
     tripped.delete(key)
@@ -758,11 +758,11 @@ export function createCircuitBreaker({
   function dispose() {
     disposed = true
     for (const cleanup of [...settleCleanups]) {
-      try { cleanup() } catch { /* 忽略 */ }
+      try { cleanup() } catch { /* dispose-path: settle 定时器可能已自动触发 */ }
     }
     settleCleanups.clear()
     for (const state of states.values()) {
-      try { state?.notifyHandle?.cancel?.() } catch { /* 忽略 */ }
+      try { state?.notifyHandle?.cancel?.() } catch { /* dispose-path: 插件卸载时取消残留告警句柄 */ }
     }
     states.clear()
     alerts.clear()

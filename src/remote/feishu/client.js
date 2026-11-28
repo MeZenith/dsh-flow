@@ -229,7 +229,7 @@ export function createFeishuClient({ onMessage, onCardAction, onDisconnected, lo
           lastError = err instanceof Error ? err.message : String(err ?? 'WebSocket 异常')
           diag(`feishu ws error=${lastError}`)
           logger?.warn?.(`flow: 飞书 WebSocket 长连接异常断开 → ${lastError}`)
-          try { onDisconnected?.(lastError) } catch { /* 忽略 */ }
+          try { onDisconnected?.(lastError) } catch { /* best-effort: 断线回调异常不影响连接状态机 */ }
         },
       })
 

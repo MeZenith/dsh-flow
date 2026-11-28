@@ -226,7 +226,7 @@ function openSocket(host, port, security, timeoutMs = SESSION_TIMEOUT_MS) {
       if (settled) return
       settled = true
       cleanup()
-      try { socket.destroy() } catch { /* 忽略 */ }
+      try { socket.destroy() } catch { /* dispose-path: SMTP 连接错误处理阶段关闭底层 socket */ }
       reject(error)
     }
     const onReady = () => {
@@ -260,7 +260,7 @@ async function starttls(session, host) {
   const upgraded = await new Promise((resolve, reject) => {
     const socket = tlsConnect({ socket: rawSocket, servername: host })
     const timer = setTimeout(() => {
-      try { socket.destroy() } catch { /* 忽略 */ }
+      try { socket.destroy() } catch { /* dispose-path: SMTP 连接错误处理阶段关闭底层 socket */ }
       reject(new Error('SMTP STARTTLS 升级超时'))
     }, SESSION_TIMEOUT_MS)
     if (typeof timer.unref === 'function') timer.unref()

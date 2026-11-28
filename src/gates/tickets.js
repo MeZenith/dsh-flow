@@ -75,7 +75,7 @@ export function createGateTickets({ getConfig, logger, diag = () => {}, onEvent,
   let disposed = false
 
   const warn = (message) => {
-    try { logger?.warn?.(message) } catch { /* 忽略 */ }
+    try { logger?.warn?.(message) } catch { /* best-effort: 宿主 logger 异常时不阻断票据状态机 */ }
   }
 
   function emit(type, ticket) {
@@ -492,7 +492,7 @@ export function createGateTickets({ getConfig, logger, diag = () => {}, onEvent,
   function dispose() {
     disposed = true
     for (const [id, timer] of escalations) {
-      try { clearTimeout(timer) } catch { /* 忽略 */ }
+      try { clearTimeout(timer) } catch { /* dispose-path: 升级计时器已触发或销毁 */ }
       escalations.delete(id)
     }
     grants.clear()

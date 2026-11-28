@@ -454,7 +454,7 @@ export function apply(ctx, config) {
     scoped.on('agent/disposed', ({ agent }) => {
       const id = agent?.id
       if (id !== undefined && agentDisposers.has(id)) {
-        try { agentDisposers.get(id)?.() } catch { /* 忽略 */ }
+        try { agentDisposers.get(id)?.() } catch { /* dispose-path: 会话销毁清理阶段单步回收失败不阻塞其余资源释放 */ }
         agentDisposers.delete(id)
       }
       bridge.forget(agent)
@@ -561,7 +561,7 @@ export function apply(ctx, config) {
     scoped.effect(
       () => () => {
         for (const dispose of [...agentDisposers.values()]) {
-          try { dispose() } catch { /* 忽略 */ }
+          try { dispose() } catch { /* dispose-path: 卸载阶段遍历清理会话钩子 */ }
         }
         agentDisposers.clear()
       },
@@ -571,7 +571,7 @@ export function apply(ctx, config) {
     return async () => {
       const current = state.handle
       state.handle = null
-      try { await current?.dispose?.() } catch { /* 忽略 */ }
+      try { await current?.dispose?.() } catch { /* dispose-path: 热重载退出旧飞书实例时防止卸载中断 */ }
     }
   })
 
