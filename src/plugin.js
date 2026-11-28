@@ -68,6 +68,21 @@ function holdOptional(ownerCtx, serviceName) {
   }
 }
 
+/** 安全读取宿主版本号（兼容 Cordis Reflect Proxy：禁止直接读未声明 inject 的属性）。 */
+function readHostVersion(ctx) {
+  const fromEnv = typeof process?.env?.DSH_VERSION === 'string' ? process.env.DSH_VERSION.trim() : ''
+  if (fromEnv !== '') return fromEnv
+  try {
+    const v = typeof ctx?.get === 'function' ? ctx.get('version') : undefined
+    if (typeof v === 'string' && v.trim() !== '') return v.trim()
+  } catch { /* best-effort: Cordis 代理禁止读取未声明 inject 的属性 */ }
+  try {
+    const rv = typeof ctx?.root?.get === 'function' ? ctx.root.get('version') : undefined
+    if (typeof rv === 'string' && rv.trim() !== '') return rv.trim()
+  } catch { /* best-effort: root 上下文中无 version 服务时忽略 */ }
+  return ''
+}
+
 /**
  * 插件主入口。
  *
@@ -84,7 +99,7 @@ export function apply(ctx, config) {
     return
   }
 
-  const hostVersion = String(ctx?.version ?? ctx?.root?.version ?? '').trim()
+  const hostVersion = readHostVersion(ctx)
   if (hostVersion !== '' && !/^v?0\.2(?:\.|-|$)/i.test(hostVersion)) {
     ctx?.logger?.warn?.(
       `flow: 检测到 DSH 宿主版本 ${hostVersion} 超出已验证兼容范围 (>=0.2.0 <0.3.0)，如遇 API 异常请更新插件或查阅 README 兼容说明。`,

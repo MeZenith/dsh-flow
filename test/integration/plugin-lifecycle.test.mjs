@@ -32,8 +32,22 @@ function createFakeCordis({ version = '0.2.2-rc.4', rootDir, withConnection = tr
     }
   }
 
+  const BUILTIN_PROPS = new Set(['logger', 'get', 'on', 'effect', 'inject', 'root'])
+
+  function makeCtxProxy(injectedSet) {
+    const proxy = new Proxy(baseCtx, {
+      get(target, prop) {
+        if (typeof prop === 'symbol' || prop === 'then') return undefined
+        if (BUILTIN_PROPS.has(prop) || injectedSet.has(prop)) {
+          return Reflect.get(target, prop)
+        }
+        throw new Error(`cannot get property "${String(prop)}" without inject`)
+      },
+    })
+    return proxy
+  }
+
   const baseCtx = {
-    version,
     logger: {
       info: msg => logs.info.push(String(msg)),
       warn: msg => logs.warn.push(String(msg)),
@@ -92,7 +106,7 @@ function createFakeCordis({ version = '0.2.2-rc.4', rootDir, withConnection = tr
         }
       },
     },
-    get: name => services.get(name) ?? baseCtx[name],
+    get: name => services.get(name),
     on: (event, fn) => {
       const off = addListener(event, fn)
       effects.push(off)
@@ -104,9 +118,10 @@ function createFakeCordis({ version = '0.2.2-rc.4', rootDir, withConnection = tr
       return () => { if (typeof clean === 'function') clean() }
     },
     inject: (deps, cb) => {
-      const hasMissing = deps.some(d => baseCtx.get(d) === undefined)
+      const hasMissing = deps.some(d => services.get(d) === undefined)
       if (hasMissing) return Promise.resolve()
-      const res = cb(baseCtx)
+      const scopedProxy = makeCtxProxy(new Set(deps))
+      const res = cb(scopedProxy)
       return Promise.resolve(res).then((ret) => {
         if (typeof ret === 'function') pluginTeardowns.push(ret)
         return ret
@@ -119,6 +134,7 @@ function createFakeCordis({ version = '0.2.2-rc.4', rootDir, withConnection = tr
     ? { requestRejection: () => nextRejection }
     : undefined
 
+  services.set('version', version)
   services.set('systemPrompt', baseCtx.systemPrompt)
   services.set('commands', baseCtx.commands)
   services.set('sessionProjections', baseCtx.sessionProjections)
@@ -126,6 +142,9 @@ function createFakeCordis({ version = '0.2.2-rc.4', rootDir, withConnection = tr
   services.set('tools', baseCtx.tools)
   services.set('webServer', baseCtx.webServer)
   if (withConnection) services.set('connection', baseCtx.connection)
+
+  const rootProxy = makeCtxProxy(new Set())
+  baseCtx.root = rootProxy
 
   function setNextRejection(code) { nextRejection = code }
 
@@ -182,7 +201,7 @@ function createFakeCordis({ version = '0.2.2-rc.4', rootDir, withConnection = tr
   }
 
   return {
-    ctx: baseCtx,
+    ctx: rootProxy,
     logs,
     tools,
     commands,
@@ -271,6 +290,7 @@ test('Fake Cordis lifecycle: apply() mounts tools/commands/routes/hooks and tear
 test('apply() warns cleanly when DSH host version falls outside >=0.2.0 <0.3.0 compatibility range', async () => {
   const { apply, Config } = await import('../../index.js')
   const fake = createFakeCordis({ version: '0.3.0' })
+  assert.throws(() => fake.ctx.version, /cannot get property "version" without inject/)
   apply(fake.ctx, Config({ team: { enabled: false }, feishu: { enabled: false }, gate: { persist: false } }))
   await new Promise(r => setTimeout(r, 30))
   assert.ok(fake.logs.warn.some(line => line.includes('0.3.0') && line.includes('兼容范围')))
