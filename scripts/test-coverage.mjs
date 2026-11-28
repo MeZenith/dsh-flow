@@ -3,7 +3,7 @@
  * 零依赖覆盖率门禁脚本（Node 22+ 原生 `--experimental-test-coverage`）。
  *
  * 收集 `test/` 下全部 `*.test.mjs` 并运行测试 + 覆盖率统计，
- * 若任一测试失败或全局覆盖率低于基线门槛（Line >= 70%, Branch >= 53%, Funcs >= 62%）则返回退出码 1。
+ * 若任一测试失败或全局覆盖率低于基线门槛（Line >= 80%, Branch >= 60%, Funcs >= 75%）则返回退出码 1。
  */
 import { spawnSync } from 'node:child_process'
 import { readdirSync } from 'node:fs'
@@ -11,7 +11,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
-const THRESHOLDS = Object.freeze({ line: 70, branch: 53, funcs: 62 })
+const THRESHOLDS = Object.freeze({ line: 80, branch: 60, funcs: 75 })
 
 function collectTestFiles(dir, out = []) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
