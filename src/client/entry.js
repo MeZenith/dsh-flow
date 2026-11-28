@@ -46,7 +46,7 @@ function FlowSettingsCard(props) {
 
   useEffect(() => {
     let alive = true
-    fetch('/api/dsh-flow/prompts', { headers: { accept: 'application/json' } })
+    fetch('/api/dsh-flow/prompts', { credentials: 'same-origin', headers: { accept: 'application/json' } })
       .then(response => (response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`))))
       .then((payload) => {
         if (!alive) return

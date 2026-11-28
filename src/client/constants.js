@@ -142,6 +142,7 @@ function withOverrides(base, table) {
 async function apiCall(method, path, body) {
   const response = await fetch(path, {
     method,
+    credentials: 'same-origin',
     headers: body === undefined
       ? { accept: 'application/json' }
       : { 'content-type': 'application/json', accept: 'application/json' },

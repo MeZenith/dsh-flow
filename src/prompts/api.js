@@ -17,7 +17,7 @@
  * - `POST     /api/dsh-flow/feishu/test`        发送一张飞书互动测试卡片
  * - `POST     /api/dsh-flow/feishu/verify`      手动 AppID/AppSecret 凭证连通性校验
  *
- * 五道回环安全防线：对端 IP → Host → Origin → Method → Content-Type。
+ * 六道安全防线：DSH `connection.requestRejection` 宿主准入 →（回环模式纵深防御）对端 IP → Host → Origin → Method → Content-Type。
  * v0.6.0 修复 B-12：decodeURIComponent try/catch、HEAD 不写 body、参数校验返回 400、写响应路径脱敏。
  *
  * @module dsh-flow/prompts/api
@@ -183,9 +183,10 @@ function sanitizePath(value) {
  *   update: (signal?: AbortSignal) => Promise<{ result: object, text: string }>,
  *   feishu?: object,
  *   testNotify?: (channel?: string) => Promise<object>,
+ *   connection?: { requestRejection?: (req: object) => number | undefined, allowsRemoteAuthorities?: boolean },
  * }} deps
  */
-export function createPromptApi({ store, update, feishu, testNotify }) {
+export function createPromptApi({ store, update, feishu, testNotify, connection }) {
   function overview() {
     const manifest = store.manifestInfo()
     const base = store.base()
@@ -231,20 +232,37 @@ export function createPromptApi({ store, update, feishu, testNotify }) {
     }
   }
 
-  /** 五道回环拦截层。 */
+  /** 写入空响应体拒绝（对齐 DSH connection 鉴权约定：401/403 且无响应体）。 */
+  function rejectEmpty(response, status) {
+    response.statusCode = status
+    response.setHeader('cache-control', 'no-store')
+    response.end()
+    return false
+  }
+
+  /** 六道安全准入防线：DSH 宿主 `connection.requestRejection` 优先，并在本地回环模式下保留五道纵深校验。 */
   function guard(request, response, { methods, json = false } = {}) {
-    if (!isLoopback(request)) {
-      sendJson(request, response, 403, { ok: false, error: 'forbidden', reason: 'non-loopback' })
-      return false
+    if (typeof connection?.requestRejection !== 'function') {
+      return rejectEmpty(response, 403)
+    }
+    const rejection = connection.requestRejection(request)
+    if (rejection !== undefined) {
+      return rejectEmpty(response, rejection === 401 ? 401 : 403)
     }
     const host = request?.headers?.host
-    if (!isAllowedHost(host)) {
-      sendJson(request, response, 403, { ok: false, error: 'forbidden', reason: 'bad-host' })
-      return false
-    }
-    if (!isSameOrigin(request?.headers?.origin, host)) {
-      sendJson(request, response, 403, { ok: false, error: 'forbidden', reason: 'cross-origin' })
-      return false
+    if (connection?.allowsRemoteAuthorities !== true) {
+      if (!isLoopback(request)) {
+        sendJson(request, response, 403, { ok: false, error: 'forbidden', reason: 'non-loopback' })
+        return false
+      }
+      if (!isAllowedHost(host)) {
+        sendJson(request, response, 403, { ok: false, error: 'forbidden', reason: 'bad-host' })
+        return false
+      }
+      if (!isSameOrigin(request?.headers?.origin, host)) {
+        sendJson(request, response, 403, { ok: false, error: 'forbidden', reason: 'cross-origin' })
+        return false
+      }
     }
     const method = methodOf(request)
     if (Array.isArray(methods) && methods.length > 0 && !methods.includes(method)) {

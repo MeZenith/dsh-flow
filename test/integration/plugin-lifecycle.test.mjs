@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-function createFakeCordis({ version = '0.2.2-rc.4', rootDir } = {}) {
+function createFakeCordis({ version = '0.2.2-rc.4', rootDir, withConnection = true } = {}) {
   const listeners = new Map()
   const effects = []
   const tools = new Map()
@@ -114,12 +114,20 @@ function createFakeCordis({ version = '0.2.2-rc.4', rootDir } = {}) {
     },
   }
 
+  let nextRejection
+  baseCtx.connection = withConnection
+    ? { requestRejection: () => nextRejection }
+    : undefined
+
   services.set('systemPrompt', baseCtx.systemPrompt)
   services.set('commands', baseCtx.commands)
   services.set('sessionProjections', baseCtx.sessionProjections)
   services.set('agents', baseCtx.agents)
   services.set('tools', baseCtx.tools)
   services.set('webServer', baseCtx.webServer)
+  if (withConnection) services.set('connection', baseCtx.connection)
+
+  function setNextRejection(code) { nextRejection = code }
 
   function createFakeAgent(sessionId, cwd = rootDir) {
     const agentEffects = []
@@ -187,6 +195,7 @@ function createFakeCordis({ version = '0.2.2-rc.4', rootDir } = {}) {
     createFakeAgent,
     emit,
     disposeAll,
+    setNextRejection,
   }
 }
 
@@ -211,6 +220,19 @@ test('Fake Cordis lifecycle: apply() mounts tools/commands/routes/hooks and tear
     assert.ok(fake.commands.has('flow'))
     assert.ok(fake.commands.has('flow-notice'))
     assert.ok(fake.routes.length >= 15, '必须注册本地回环 HTTP API 路由')
+    // 校验已注册路由强制经过 DSH connection.requestRejection 准入拦截
+    const promptsRoute = fake.routes.find(r => r.path === '/api/dsh-flow/prompts')
+    assert.ok(promptsRoute)
+    fake.setNextRejection(401)
+    let status = 200
+    let body = ''
+    await promptsRoute.handler(
+      { method: 'GET', url: '/api/dsh-flow/prompts', socket: { remoteAddress: '127.0.0.1' }, headers: { host: '127.0.0.1:3080' } },
+      { setHeader() {}, end(c) { if (c !== undefined) body += String(c) }, set statusCode(v) { status = v }, get statusCode() { return status } },
+    )
+    assert.equal(status, 401)
+    assert.equal(body, '')
+    fake.setNextRejection(undefined)
     for (const ev of ['agent/status', 'agent/inbox/claimed', 'agent/assistant-stream', 'session/event', 'approval/request', 'tools/post-execute', 'agent/created', 'agent/disposed']) {
       assert.ok((fake.listeners.get(ev)?.length ?? 0) >= 1, `缺少事件监听: ${ev}`)
     }
@@ -252,5 +274,14 @@ test('apply() warns cleanly when DSH host version falls outside >=0.2.0 <0.3.0 c
   apply(fake.ctx, Config({ team: { enabled: false }, feishu: { enabled: false }, gate: { persist: false } }))
   await new Promise(r => setTimeout(r, 30))
   assert.ok(fake.logs.warn.some(line => line.includes('0.3.0') && line.includes('兼容范围')))
+  await fake.disposeAll()
+})
+
+test('apply() refuses to mount HTTP routes when DSH connection service is absent (fail-closed)', async () => {
+  const { apply, Config } = await import('../../index.js')
+  const fake = createFakeCordis({ version: '0.2.2-rc.4', withConnection: false })
+  apply(fake.ctx, Config({ team: { enabled: false }, feishu: { enabled: false }, gate: { persist: false } }))
+  await new Promise(r => setTimeout(r, 30))
+  assert.equal(fake.routes.length, 0, '缺少 connection 准入服务时必须拒绝挂载 HTTP 路由')
   await fake.disposeAll()
 })

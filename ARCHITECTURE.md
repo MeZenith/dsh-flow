@@ -32,7 +32,7 @@ flowchart TD
 
 1. Root [index.js](./index.js) re-exports `name`, `inject`, `Config`, and `apply` from [src/plugin.js](./src/plugin.js) without a `default` export so the DeepSeek Harness (DSH) loader registers the plugin via named ES module exports.
 2. `apply(ctx, rawConfig)` checks `process.versions.node` (requires `>= 22`), warns if host version falls outside `>=0.2.0 <0.3.0`, and wires services inside a scoped Cordis fork.
-3. Hard dependencies declared in `inject` (`systemPrompt`, `commands`, `sessionProjections`, `agents`, `tools`) gate plugin activation, while optional services (`webServer`, `userQuestions`, `llm`, `credentials`, `workspaceRegistry`) are bound lazily via `holdOptional()`.
+3. Hard dependencies declared in `inject` (`systemPrompt`, `commands`, `sessionProjections`, `agents`, `tools`) gate plugin activation, while optional services (`webServer` + `connection` together for authenticated HTTP routes, `userQuestions`, `llm`, `credentials`, `workspaceRegistry`) are bound lazily via scoped injection/`holdOptional()`.
 4. On `agent/disposed` or plugin unload, per-session disposers clear timers, abort in-flight compact/HTTP requests, unlock pending remote approvals, and close the Feishu WebSocket connection cleanly.
 
 ### 2. Mode Switching & Projection Folding
@@ -70,3 +70,4 @@ flowchart TD
 | No leftover `console.log(` or uncommented empty `catch {}` in `src/` | Checked by `npm run check` (`scripts/check-code.mjs`) | [scripts/check-code.mjs](./scripts/check-code.mjs) |
 | Controlled writes never escape workspace root via traversal or symlinks | `assertInsideRoot()` & `normalizeRelDir()` | [src/shared/fs-safe.js](./src/shared/fs-safe.js) |
 | Remote Feishu control fails closed when allowlist is empty | `isAllowedUser()` in `router.js` + `remote-feishu.test.mjs` | [src/remote/feishu/router.js](./src/remote/feishu/router.js) |
+| HTTP API routes authenticate every request via DSH host admission | `scoped.inject(['webServer', 'connection'])` + `connection.requestRejection()` (empty `401`/`403`) | [src/prompts/api.js](./src/prompts/api.js) |

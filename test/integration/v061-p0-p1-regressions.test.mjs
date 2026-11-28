@@ -76,9 +76,13 @@ test('P0-1 & P1-9: plugin syncModeCommand matches real DSH commands.execute sign
     },
     get: () => undefined,
     inject(deps, cb) {
-      if (Array.isArray(deps) && deps.includes('webServer')) {
+      if (Array.isArray(deps) && deps.includes('webServer') && deps.includes('connection')) {
         webServerInjectedOnScoped = true
-        return cb({ webServer: { register: () => () => {} }, effect: (fn) => fn() })
+        return cb({
+          webServer: { register: () => () => {} },
+          connection: { requestRejection: () => undefined },
+          effect: (fn) => fn(),
+        })
       }
       return undefined
     },

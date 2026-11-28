@@ -110,6 +110,7 @@ test('B-12: prompt-api 5-layer guard, URIError 400, empty HEAD body, sanitized P
     const api = createPromptApi({
       store,
       update: async () => ({ result: { ok: true }, text: 'ok' }),
+      connection: { requestRejection: () => undefined },
       feishu: {
         status: async () => ({ state: 'disconnected', connected: false }),
         presets: () => ({ avatars: [{ id: 'commander', url: 'https://example.com/a.png' }] }),
@@ -224,5 +225,59 @@ test('prompt-updater pins default sources to release tag and enforces plugin com
   } finally {
     globalThis.fetch = origFetch
     rmSync(baseDir, { recursive: true, force: true })
+  }
+})
+
+test('prompt-api enforces DSH connection.requestRejection fail-closed admission with empty 401/403 responses', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-flow-conn-'))
+  try {
+    const store = createPromptStore({ getConfig: () => ({ prompts: { customDir: join(root, 'custom') } }) })
+
+    // 1. Missing connection service → 403 fail-closed empty body
+    const apiNoConn = createPromptApi({ store, update: async () => ({ result: { ok: true }, text: 'ok' }) })
+    const resNoConn = fakeRes()
+    await apiNoConn.getOverview(fakeReq(), resNoConn)
+    assert.equal(resNoConn.statusCode, 403)
+    assert.equal(resNoConn.body, '')
+    assert.equal(resNoConn.headers['cache-control'], 'no-store')
+
+    // 2. Host connection rejects with 401 or 403 → mirrored status + empty body
+    let nextRejection = 401
+    let remoteAllowed = false
+    const seen = []
+    const api = createPromptApi({
+      store,
+      update: async () => ({ result: { ok: true }, text: 'ok' }),
+      connection: {
+        get allowsRemoteAuthorities() { return remoteAllowed },
+        requestRejection(req) {
+          seen.push(req.headers.host)
+          return nextRejection
+        },
+      },
+    })
+
+    const res401 = fakeRes()
+    await api.getOverview(fakeReq(), res401)
+    assert.equal(res401.statusCode, 401)
+    assert.equal(res401.body, '')
+    assert.equal(res401.headers['cache-control'], 'no-store')
+
+    nextRejection = 403
+    const res403 = fakeRes()
+    await api.getOverview(fakeReq(), res403)
+    assert.equal(res403.statusCode, 403)
+    assert.equal(res403.body, '')
+
+    // 3. Trusted remote host allowed by connection.allowsRemoteAuthorities when requestRejection returns undefined
+    nextRejection = undefined
+    remoteAllowed = true
+    const resRemote = fakeRes()
+    await api.getOverview(fakeReq({ host: 'dsh.internal:8443', origin: 'https://dsh.internal:8443', remoteAddress: '10.0.0.5' }), resRemote)
+    assert.equal(resRemote.statusCode, 200)
+    assert.equal(JSON.parse(resRemote.body).ok, true)
+    assert.equal(seen.at(-1), 'dsh.internal:8443')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
   }
 })

@@ -36,8 +36,9 @@
 4. **提示词在线更新供应链护栏（`src/prompts/updater.js`）**
    - 官方默认更新源固定绑定对应发布 Tag（`v<version>`），不再默认跟踪可变的 `main` 分支；
    - 拉取清单时严格校验路径白名单（拒绝 `..` 与写入 `custom/`）、单文件流式 `512KB` 硬上限、`sha256` 一致性，并强制执行 `minPluginVersion` / `maxPluginVersion` 版本区间护栏，拒绝跨代拉取不兼容提示词。
-5. **本地回环控制 API 五道防线（`src/prompts/api.js`）**
-   - 所有 `/api/dsh-flow/*` 端点强制校验：本机回环对端 IP → `Host` 白名单（防 DNS Rebinding）→ `Origin` 同源（拒绝 `null` 或跨站源）→ 方法白名单（`405`）→ JSON `Content-Type`（`415`）与 `1MB` 体积上限（`413`）。
+5. **宿主准入与本地回环六道防线（`src/prompts/api.js` & `src/plugin.js`）**
+   - HTTP 控制路由在 `scoped.inject(['webServer', 'connection'])` 下挂载：宿主不提供 `connection` 准入服务时不挂载任何 HTTP 路由；
+   - 所有 `/api/dsh-flow/*` 请求优先经由 DSH 宿主 `ctx.connection.requestRejection(request)` 校验（未通过则返回 `401`/`403` 且空响应体、`cache-control: no-store`），在本地回环模式下再叠加回环 IP → `Host` 白名单 → `Origin` 同源 → 方法白名单（`405`）→ JSON `Content-Type`（`415`）与 `1MB` 体积上限（`413`），前端 `client.js` 同步携带 `credentials: 'same-origin'`。
 6. **文件系统安全边界（`src/shared/fs-safe.js`）**
    - 文档写入与锚点持久化使用最近存在祖先 `realpathSync` 校验阻断符号链接逃逸，并采用临时文件原子替换落盘。
 

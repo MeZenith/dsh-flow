@@ -158,6 +158,7 @@ window.__ModuleLoader__.load({
     async function apiCall(method, path, body) {
       const response = await fetch(path, {
         method,
+        credentials: 'same-origin',
         headers: body === undefined
           ? { accept: 'application/json' }
           : { 'content-type': 'application/json', accept: 'application/json' },
@@ -3017,7 +3018,7 @@ window.__ModuleLoader__.load({
 
       useEffect(() => {
         let alive = true
-        fetch('/api/dsh-flow/prompts', { headers: { accept: 'application/json' } })
+        fetch('/api/dsh-flow/prompts', { credentials: 'same-origin', headers: { accept: 'application/json' } })
           .then(response => (response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`))))
           .then((payload) => {
             if (!alive) return

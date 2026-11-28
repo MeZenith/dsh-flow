@@ -530,13 +530,14 @@ export function apply(ctx, config) {
       'flow: notice command',
     )
 
-    // 12. 本地回环 HTTP API（挂在 scoped 下，重载时自动释放避免重复注册路由，P1-9 修复）
-    scoped.inject(['webServer'], (httpCtx) => {
+    // 12. 本地回环 HTTP API（挂在 scoped 下并强制接入 DSH connection 准入检查，P1-9 修复）
+    scoped.inject(['webServer', 'connection'], (httpCtx) => {
       try {
         const api = createPromptApi({
           store: promptStore,
           update: runPromptUpdate,
           feishu: feishuCommander,
+          connection: httpCtx.connection,
           testNotify: async (channel) => {
             const out = {}
             if (channel === 'all' || channel === 'feishu') out.feishu = await feishuCommander.sendTestCard()
@@ -551,7 +552,7 @@ export function apply(ctx, config) {
             `flow: ${route.path}`,
           )
         }
-        logger.info(`flow: 已挂载本地控制接口 ${API_PREFIX}`)
+        logger.info(`flow: 已挂载本地控制接口 ${API_PREFIX}（已接入 DSH connection 准入认证）`)
       } catch (error) {
         logger.warn(`flow: 本地控制接口挂载失败 → ${error instanceof Error ? error.message : String(error)}`)
       }

@@ -91,6 +91,7 @@ test('P2-2: prompt API distinguishes 400/413/415, ensureDocs invalidates checkDo
     const api = createPromptApi({
       store,
       update: async () => ({ result: { ok: true }, text: 'ok' }),
+      connection: { requestRejection: () => undefined },
       feishu: { connect: async () => ({ ok: true }) },
     })
 
