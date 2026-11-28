@@ -25,7 +25,14 @@ function collectTestFiles(dir, out = []) {
 const testFiles = collectTestFiles(join(ROOT, 'test')).sort()
 const result = spawnSync(
   process.execPath,
-  ['--test', '--experimental-test-coverage', ...testFiles],
+  [
+    '--test',
+    '--experimental-test-coverage',
+    '--test-coverage-exclude=vendor/**',
+    '--test-coverage-exclude=test/**',
+    '--test-coverage-exclude=scripts/**',
+    ...testFiles,
+  ],
   { cwd: ROOT, encoding: 'utf8' },
 )
 
@@ -38,7 +45,8 @@ if (result.status !== 0) {
 
 const stripAnsi = text => String(text ?? '').replace(/\x1B\[[0-9;]*[A-Za-z]/g, '')
 const combined = stripAnsi(`${result.stdout ?? ''}\n${result.stderr ?? ''}`)
-const match = /^\s*ℹ\s*all files\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)/m.exec(combined)
+// Node 22 非 TTY TAP 输出以 `# all files` 开头，Node 24 以 `ℹ all files` 开头
+const match = /^\s*(?:ℹ|#)\s*all files\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)/m.exec(combined)
 
 if (!match) {
   console.error('覆盖率门禁失败：未在输出中解析到 `all files` 覆盖率汇总行')
