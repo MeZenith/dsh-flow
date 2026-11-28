@@ -31,8 +31,9 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v0.6.0-2563EB?style=flat-square" alt="Version v0.6.0" />
-  <img src="https://img.shields.io/badge/License-PolyForm--NC--1.0.0-EA580C?style=flat-square" alt="License: PolyForm-NC-1.0.0" />
+  <img src="https://img.shields.io/badge/Version-v0.6.1-2563EB?style=flat-square" alt="Version v0.6.1" />
+  <img src="https://img.shields.io/badge/License-Apache--2.0-059669?style=flat-square" alt="License: Apache-2.0" />
+  <a href="https://github.com/MeZenith/dsh-flow/actions/workflows/ci.yml"><img src="https://github.com/MeZenith/dsh-flow/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <img src="https://img.shields.io/badge/ESM-Modular-16A34A?style=flat-square" alt="Modular ESM" />
   <img src="https://img.shields.io/badge/Node-%3E%3D22-339933?style=flat-square" alt="Node >= 22" />
   <img src="https://img.shields.io/badge/Feishu-Direct%20WSS-00B96B?style=flat-square" alt="Feishu Direct WSS" />
@@ -86,7 +87,7 @@ When driving long coding chains with an LLM, the real cost is rarely "it cannot 
 
 #### 3. Workflow Refinements & Modular Architecture
 * **Direct `.flow/docs/` Writes by Default**: `docs.writePolicy` defaults to `auto` (switchable back to `ask`), keeping business code strictly read-only in Plan mode while eliminating redundant write-permission prompts before plan review;
-* **Clean 11-Layer `src/` Architecture & Automated Tests**: Refactored 29 flat root scripts into modular `src/` layers + modular `src/client/` bundle builder (`npm run build:client`), backed by 25 automated `node:test` suites covering gates, docs, circuit breaker, SMTP, prompt API, and end-to-end Feishu streaming & approvals.
+* **Clean 11-Layer `src/` Architecture & Automated CI**: Refactored 29 flat root scripts into modular `src/` layers + modular `src/client/` bundle builder (`npm run build:client`), backed by **40+ automated `node:test` suites with Linux/Windows Node 22/24 CI & coverage gates** covering gates, docs, circuit breaker, SMTP, prompt API, and end-to-end Feishu streaming & approvals.
 
 ---
 
@@ -259,7 +260,16 @@ dsh plugin --profile web remove dsh-flow
 dsh plugin --profile web add github:MeZenith/dsh-flow
 ```
 
-For full technical architecture, local loopback API specs, and subagent authoring contracts, see **[docs/DETAIL.md](./docs/DETAIL.md)** and **[CHANGELOG.md](./CHANGELOG.md)**.
+For full technical architecture, local loopback API specs, and subagent authoring contracts, see **[docs/DETAIL.md](./docs/DETAIL.md)**, **[CONTRIBUTING.md](./CONTRIBUTING.md)**, and **[CHANGELOG.md](./CHANGELOG.md)**.
+
+---
+
+### Security Trust Model & Known Limitations
+
+* **Remote Trust Boundary**: Feishu allowlist (`feishu.allowedOpenIds`) enforces strict Fail-Closed access (empty allowlist permits only `/id` and `/whoami`). An allowlisted Feishu account can dispatch tasks to active DSH sessions; configure `High-Risk Tool Approvals` in Settings (`Allow via Feishu` / `Require PIN` / `Desktop Confirmation Only`) to restrict destructive operations.
+* **Host & Runtime Matrix**: Verified on `DeepSeek Harness 0.2.x` (`0.2.2-rc.4` baseline) and `Node.js >= 22`. Unsupported Node or host versions emit explicit startup diagnostics.
+* **Built-in Zero-Dep SMTP Scope**: Verified against QQ Mail, 163 Mail, Gmail, and standard SSL/STARTTLS relays; exotic enterprise mail servers may require custom webhooks.
+* **Vulnerability Disclosure & Dependency Audit**: See **[SECURITY.md](./SECURITY.md)** for security policy, credential storage fallback notices, and `@larksuiteoapi/node-sdk` transitive dependency notes.
 
 ---
 

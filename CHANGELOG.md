@@ -4,6 +4,8 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+> **版本史说明**：`0.1.0–0.3.0` 为公开仓库前的早期内部迭代版本（无独立公开 Git tag）；公开仓库首个 Git tag 与 Release 自 `v0.4.0` 起。
+
 ## [Unreleased]
 
 暂无。

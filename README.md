@@ -31,8 +31,9 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v0.6.0-2563EB?style=flat-square" alt="Version v0.6.0" />
-  <img src="https://img.shields.io/badge/License-PolyForm--NC--1.0.0-EA580C?style=flat-square" alt="License: PolyForm-NC-1.0.0" />
+  <img src="https://img.shields.io/badge/Version-v0.6.1-2563EB?style=flat-square" alt="Version v0.6.1" />
+  <img src="https://img.shields.io/badge/License-Apache--2.0-059669?style=flat-square" alt="License: Apache-2.0" />
+  <a href="https://github.com/MeZenith/dsh-flow/actions/workflows/ci.yml"><img src="https://github.com/MeZenith/dsh-flow/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <img src="https://img.shields.io/badge/ESM-Modular-16A34A?style=flat-square" alt="Modular ESM" />
   <img src="https://img.shields.io/badge/Node-%3E%3D22-339933?style=flat-square" alt="Node >= 22" />
   <img src="https://img.shields.io/badge/Feishu-Direct%20WSS-00B96B?style=flat-square" alt="Feishu Direct WSS" />
@@ -86,7 +87,7 @@
 
 #### 3. 工程工作流体验打磨 & 架构分层重构
 * **`.flow/docs/` 免二次审批直接落盘**：`docs.writePolicy` 默认设为 `auto`（可随时切回 `ask`），业务代码依然严格受只读沙箱保护，文档落盘后一次送交阶段门禁拍板，并自动作为文件直传飞书；
-* **全面分层架构与自动化回归测试**：原有 29 个根目录脚本重构为 `src/` 十一层清晰模块与模块化 `src/client/` 源码，补齐 25 项 `node:test` 自动化回归测试，修复包括模式芯片同步、裸数字桌面确认、熔断解锁防过期提醒、SMTP 多行 EHLO、DSH `credentials` 凭据规范等全部核心缺陷。
+* **全面分层架构与自动化回归测试**：原有 29 个根目录脚本重构为 `src/` 十一层清晰模块与模块化 `src/client/` 源码，配套 **40 项 `node:test` 自动化测试 + Linux/Windows 双平台 Node 22/24 CI 与覆盖率门禁**，修复模式芯片同步、裸数字桌面确认、熔断解锁防过期提醒、SMTP 多行 EHLO、DSH `credentials` 凭据规范与飞书流式同步时序等核心缺陷。
 
 ---
 
@@ -332,7 +333,7 @@ dsh plugin --profile web add github:MeZenith/dsh-flow
 | `/stop` 或 `停止` | 立即中止当前项目正在运行的 AI 回合 |
 | `@项目名 你的指令` | 一步切换目标项目并立刻下达任务 |
 | `/new 目录名 首条指令` | 在目标目录新建并切入会话 |
-| `/help` 或 `你好` / `菜单` | 发送完整开箱引导卡片与指令速查 |
+| `/help` 或 `菜单` / `帮助` | 发送完整开箱引导卡片与指令速查 |
 | `/id` | 查看你的飞书 `open_id`（填入设置页「允许的用户」开启白名单保护） |
 | `#票据号 1 你的意见` | 回复指定门禁并附带修改意见（也可直接点卡片按钮） |
 
@@ -351,7 +352,16 @@ dsh plugin --profile web add github:MeZenith/dsh-flow
 
 </details>
 
-完整架构设计、目录分层、状态机细节与本地回环 API 文档请参阅 **[docs/DETAIL.md](./docs/DETAIL.md)**；历史变更见 **[CHANGELOG.md](./CHANGELOG.md)**。
+完整架构设计、目录分层、状态机细节与本地回环 API 文档请参阅 **[docs/DETAIL.md](./docs/DETAIL.md)**；参与贡献请参阅 **[CONTRIBUTING.md](./CONTRIBUTING.md)**；历史变更见 **[CHANGELOG.md](./CHANGELOG.md)**。
+
+---
+
+### 安全信任模型与已知限制
+
+* **远程信任边界**：飞书白名单（`feishu.allowedOpenIds`）默认采用严格 Fail-Closed 策略（留空时仅放行 `/id` 与 `/whoami`）；白名单内的飞书账号等价于对当前运行中 DSH 会话的派活权限。请在设置页「飞书远程 → 访问控制」中按需开启高危工具审批护栏（支持「飞书直批 / PIN 二次校验 / 高危仅限桌面端确认」三档）。
+* **宿主与运行环境范围**：当前在 `DeepSeek Harness 0.2.x`（实测基线 `0.2.2-rc.4`）与 `Node.js >= 22` 下验证；低版本 Node 或跨大版本 DSH 会在插件入口给出明确告警。
+* **零依赖 SMTP 范围**：内置无依赖 SMTP 客户端已验证 QQ、163、Gmail 及标准 SSL/STARTTLS 自建邮局；特殊企业邮局如遇兼容性问题，建议通过自定义 Webhook 或独立通知通道集成。
+* **安全披露与传递依赖**：完整安全模型与 `@larksuiteoapi/node-sdk` 传递依赖说明请参阅 **[SECURITY.md](./SECURITY.md)**。
 
 ---
 
