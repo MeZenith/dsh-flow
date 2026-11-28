@@ -124,23 +124,23 @@
 
 ### 界面与真机实拍
 
+<sub>💡 点击任意截图可查看高清原图</sub>
+
 #### 1. Apple 极简设置台与模式切换芯片
 
 <table width="100%">
   <tr>
-    <td width="50%" align="center" valign="top">
-      <img src="./docs/assets/settings-workflow.png" width="100%" alt="工作流与异常熔断设置页" /><br/>
-      <sub><b>工作流与异常熔断</b>：分段控件、滑动开关、步进器与折叠高级区</sub>
+    <td width="34%" align="center" valign="bottom">
+      <img src="./docs/assets/settings-workflow.png" width="265" alt="工作流与异常熔断设置页" /><br/>
+      <sub><b>工作流与异常熔断</b><br/>分段控件 · 开关 · 步进器</sub>
     </td>
-    <td width="50%" align="center" valign="top">
-      <img src="./docs/assets/settings-feishu.png" width="100%" alt="飞书远程指挥官设置页" /><br/>
-      <sub><b>飞书远程指挥官</b>：在线状态、<code>/ 菜单已就绪</code>、6 项细粒度推送开关与白名单</sub>
+    <td width="34%" align="center" valign="bottom">
+      <img src="./docs/assets/settings-feishu.png" width="258" alt="飞书远程指挥官设置页" /><br/>
+      <sub><b>飞书远程指挥官</b><br/>在线状态 · <code>/ 菜单</code> · 白名单</sub>
     </td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center" valign="top">
-      <img src="./docs/assets/mode-switcher.png" width="52%" alt="输入框模式切换芯片" /><br/>
-      <sub><b>电脑端输入框左下角模式芯片</b>：一键切换 Plan / Plan Ultra / Build / Review / Flow，即时生效</sub>
+    <td width="32%" align="center" valign="bottom">
+      <img src="./docs/assets/mode-switcher.png" width="248" alt="输入框模式切换芯片" /><br/>
+      <sub><b>电脑端模式切换芯片</b><br/>六大模式一键即时切换</sub>
     </td>
   </tr>
 </table>
@@ -149,33 +149,25 @@
 
 <table width="100%">
   <tr>
-    <td width="33%" align="center" valign="top">
-      <img src="./docs/assets/feishu-welcome-card.jpg" width="100%" alt="飞书开箱欢迎引导卡片" /><br/>
-      <sub><b>开箱欢迎与 3 秒上手指南</b><br/>连上自动送达，用法与指令全列清</sub>
+    <td width="20%" align="center" valign="top">
+      <img src="./docs/assets/feishu-welcome-card.jpg" width="156" alt="飞书开箱欢迎引导卡片" /><br/>
+      <sub><b>开箱欢迎卡</b><br/>连上自动送达</sub>
     </td>
-    <td width="33%" align="center" valign="top">
-      <img src="./docs/assets/feishu-slash-menu.jpg" width="100%" alt="飞书原生斜杠快捷指令菜单" /><br/>
-      <sub><b>飞书原生 <code>/</code> 快捷指令菜单</b><br/>输入框打 <code>/</code> 弹出列表，点选即发</sub>
+    <td width="20%" align="center" valign="top">
+      <img src="./docs/assets/feishu-slash-menu.jpg" width="156" alt="飞书原生斜杠快捷指令菜单" /><br/>
+      <sub><b>原生 <code>/</code> 菜单</b><br/>点选即发指令</sub>
     </td>
-    <td width="33%" align="center" valign="top">
-      <img src="./docs/assets/feishu-project-hub.jpg" width="100%" alt="飞书项目指挥台卡片" /><br/>
-      <sub><b><code>/m</code> 多项目指挥台</b><br/>一键切换在线会话与历史工作区</sub>
+    <td width="20%" align="center" valign="top">
+      <img src="./docs/assets/feishu-project-hub.jpg" width="156" alt="飞书项目指挥台卡片" /><br/>
+      <sub><b><code>/m</code> 项目台</b><br/>多工作区切换</sub>
     </td>
-  </tr>
-  <tr>
-    <td colspan="3" align="center">
-      <table width="100%">
-        <tr>
-          <td width="50%" align="center" valign="top">
-            <img src="./docs/assets/feishu-stream-reply.jpg" width="76%" alt="飞书实时流式回复卡片" /><br/>
-            <sub><b>实时流式回复卡片</b>：手机直接提问，完整 Markdown 回复 + 底部 4 个快捷操作按钮</sub>
-          </td>
-          <td width="50%" align="center" valign="top">
-            <img src="./docs/assets/feishu-mode-card.jpg" width="76%" alt="飞书图形化模式切换卡片" /><br/>
-            <sub><b><code>/mode</code> 图形化模式切换</b>：手机点一下即切换桌面会话模式并原地高亮</sub>
-          </td>
-        </tr>
-      </table>
+    <td width="20%" align="center" valign="top">
+      <img src="./docs/assets/feishu-stream-reply.jpg" width="156" alt="飞书实时流式回复卡片" /><br/>
+      <sub><b>流式回复卡</b><br/>进度与快捷钮</sub>
+    </td>
+    <td width="20%" align="center" valign="top">
+      <img src="./docs/assets/feishu-mode-card.jpg" width="156" alt="飞书图形化模式切换卡片" /><br/>
+      <sub><b><code>/mode</code> 切模式</b><br/>手机一键生效</sub>
     </td>
   </tr>
 </table>

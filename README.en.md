@@ -117,23 +117,23 @@ When driving long coding chains with an LLM, the real cost is rarely "it cannot 
 
 ### Interface & Live Previews
 
+<sub>💡 Click any screenshot to inspect full resolution</sub>
+
 #### 1. Apple-Minimalist Settings Workbench & Mode Chip
 
 <table width="100%">
   <tr>
-    <td width="50%" align="center" valign="top">
-      <img src="./docs/assets/settings-workflow.png" width="100%" alt="Workflow & Circuit Breaker settings" /><br/>
-      <sub><b>Workflow &amp; Breaker</b>: segmented controls, toggle switches, stepper, and collapsible advanced drawer</sub>
+    <td width="34%" align="center" valign="bottom">
+      <img src="./docs/assets/settings-workflow.png" width="265" alt="Workflow & Circuit Breaker settings" /><br/>
+      <sub><b>Workflow &amp; Breaker</b><br/>Segmented · Toggles · Stepper</sub>
     </td>
-    <td width="50%" align="center" valign="top">
-      <img src="./docs/assets/settings-feishu.png" width="100%" alt="Feishu Remote Commander settings" /><br/>
-      <sub><b>Feishu Remote Commander</b>: live status, native <code>/</code> menu badge, 6 push toggles &amp; allowlist</sub>
+    <td width="34%" align="center" valign="bottom">
+      <img src="./docs/assets/settings-feishu.png" width="258" alt="Feishu Remote Commander settings" /><br/>
+      <sub><b>Feishu Remote Commander</b><br/>Live status · <code>/ menu</code> · Allowlist</sub>
     </td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center" valign="top">
-      <img src="./docs/assets/mode-switcher.png" width="52%" alt="Composer mode switcher chip" /><br/>
-      <sub><b>Desktop composer mode chip</b>: switch Plan / Plan Ultra / Build / Review / Flow in one click</sub>
+    <td width="32%" align="center" valign="bottom">
+      <img src="./docs/assets/mode-switcher.png" width="248" alt="Composer mode switcher chip" /><br/>
+      <sub><b>Desktop Mode Chip</b><br/>One-click mode switching</sub>
     </td>
   </tr>
 </table>
@@ -142,33 +142,25 @@ When driving long coding chains with an LLM, the real cost is rarely "it cannot 
 
 <table width="100%">
   <tr>
-    <td width="33%" align="center" valign="top">
-      <img src="./docs/assets/feishu-welcome-card.jpg" width="100%" alt="Feishu welcome guide card" /><br/>
-      <sub><b>Welcome &amp; 3-Second Guide</b><br/>Sent automatically on connect</sub>
+    <td width="20%" align="center" valign="top">
+      <img src="./docs/assets/feishu-welcome-card.jpg" width="156" alt="Feishu welcome guide card" /><br/>
+      <sub><b>Welcome Card</b><br/>Sent on connect</sub>
     </td>
-    <td width="33%" align="center" valign="top">
-      <img src="./docs/assets/feishu-slash-menu.jpg" width="100%" alt="Feishu native slash menu" /><br/>
-      <sub><b>Native <code>/</code> Command Panel</b><br/>Type <code>/</code> to pick commands visually</sub>
+    <td width="20%" align="center" valign="top">
+      <img src="./docs/assets/feishu-slash-menu.jpg" width="156" alt="Feishu native slash menu" /><br/>
+      <sub><b>Native <code>/</code> Menu</b><br/>Visual commands</sub>
     </td>
-    <td width="33%" align="center" valign="top">
-      <img src="./docs/assets/feishu-project-hub.jpg" width="100%" alt="Feishu multi-project hub card" /><br/>
-      <sub><b><code>/m</code> Project Hub</b><br/>Switch active sessions &amp; workspaces</sub>
+    <td width="20%" align="center" valign="top">
+      <img src="./docs/assets/feishu-project-hub.jpg" width="156" alt="Feishu multi-project hub card" /><br/>
+      <sub><b><code>/m</code> Project Hub</b><br/>Workspace switcher</sub>
     </td>
-  </tr>
-  <tr>
-    <td colspan="3" align="center">
-      <table width="100%">
-        <tr>
-          <td width="50%" align="center" valign="top">
-            <img src="./docs/assets/feishu-stream-reply.jpg" width="76%" alt="Feishu streaming reply card" /><br/>
-            <sub><b>Live Streaming Reply Card</b>: full Markdown response + 4 quick action buttons</sub>
-          </td>
-          <td width="50%" align="center" valign="top">
-            <img src="./docs/assets/feishu-mode-card.jpg" width="76%" alt="Feishu visual mode picker card" /><br/>
-            <sub><b><code>/mode</code> Visual Mode Switcher</b>: switch desktop modes with one tap</sub>
-          </td>
-        </tr>
-      </table>
+    <td width="20%" align="center" valign="top">
+      <img src="./docs/assets/feishu-stream-reply.jpg" width="156" alt="Feishu streaming reply card" /><br/>
+      <sub><b>Streaming Card</b><br/>Live progress &amp; tools</sub>
+    </td>
+    <td width="20%" align="center" valign="top">
+      <img src="./docs/assets/feishu-mode-card.jpg" width="156" alt="Feishu visual mode picker card" /><br/>
+      <sub><b><code>/mode</code> Picker</b><br/>One-tap mobile switch</sub>
     </td>
   </tr>
 </table>
