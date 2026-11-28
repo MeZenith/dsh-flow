@@ -273,11 +273,9 @@ For full technical architecture, local loopback API specs, and subagent authorin
 
 ### License
 
-Released under the **[PolyForm Noncommercial License 1.0.0](./LICENSE)** (non-commercial use only; attribution required):
+Released under the **[Apache License 2.0](./LICENSE)** (Copyright 2026 MeZenith):
 
-```text
-Required Notice: Copyright (c) 2026 MeZenith (https://github.com/MeZenith/dsh-flow).
-Any derivative work or redistribution must clearly attribute dsh-flow and its original author.
-```
+* Permitted for personal and commercial use, modification, derivative works, and redistribution, with explicit patent grant;
+* Keep copyright notices and a copy of `LICENSE` on redistribution; contributions follow Apache-2.0 Section 5.
 
 See [THIRD_PARTY_NOTES.md](./THIRD_PARTY_NOTES.md) for third-party component notices.

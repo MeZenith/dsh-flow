@@ -365,15 +365,9 @@ dsh plugin --profile web add github:MeZenith/dsh-flow
 
 ### 开源协议
 
-本项目采用 **[PolyForm Noncommercial License 1.0.0](./LICENSE)** 发布：
+本项目基于 **[Apache License 2.0](./LICENSE)** 开源发布（Copyright 2026 MeZenith）：
 
-* **允许**：个人使用、学习研究、非商业用途下的修改、二次开发与分发；
-* **禁止**：任何形式的商业用途（商用产品集成、收费服务或营利性分发）；
-* **强制署名**：任何二次开发或再分发行为，**必须明确注明使用了 `dsh-flow` 代码或基于本项目二次开发**，并完整保留 `LICENSE` 原文及下方声明：
-
-```text
-Required Notice: Copyright (c) 2026 MeZenith (https://github.com/MeZenith/dsh-flow).
-Any derivative work or redistribution must clearly attribute dsh-flow and its original author.
-```
+* 允许个人与商业用途使用、修改、二次开发与再分发，附带专利授权保护；
+* 保留原有版权声明与 `LICENSE` 文本即可，提交至本仓库的贡献默认按 Apache-2.0 协议接受。
 
 `vendor/` 目录下第三方组件的许可条款请参阅 [THIRD_PARTY_NOTES.md](./THIRD_PARTY_NOTES.md)。
